@@ -18,6 +18,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { createProductAction, updateProductAction, deleteProductAction } from "@/app/app/(shell)/brand/actions";
 import type { ProductService } from "@/types/database";
 import { Package } from "lucide-react";
@@ -108,6 +109,11 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
                 onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
                 placeholder="Description"
               />
+              <Input
+                value={editDraft.category}
+                onChange={(e) => setEditDraft({ ...editDraft, category: e.target.value })}
+                placeholder="Category (optional)"
+              />
               <div className="flex gap-2 justify-end">
                 <Button variant="ghost" size="sm" onClick={() => setEditingId(null)}>
                   <X className="h-4 w-4" /> Cancel
@@ -119,8 +125,11 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
             </div>
           ) : (
             <div key={p.id} className="flex items-start justify-between gap-3 rounded-md border border-border p-3">
-              <div className="grid gap-0.5">
-                <p className="text-sm font-medium text-text-primary">{p.name}</p>
+              <div className="grid gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium text-text-primary">{p.name}</p>
+                  {p.category && <Badge>{p.category}</Badge>}
+                </div>
                 {p.description && <p className="text-sm text-text-secondary">{p.description}</p>}
               </div>
               <div className="flex gap-1">
@@ -139,6 +148,7 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
           <div className="grid gap-2 rounded-md border border-dashed border-border p-4">
             <Input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="Product or service name" autoFocus />
             <Textarea rows={2} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} placeholder="Description (optional)" />
+            <Input value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} placeholder="Category (optional)" />
             <div className="flex gap-2 justify-end">
               <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
                 Cancel

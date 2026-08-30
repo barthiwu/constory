@@ -29,6 +29,7 @@ export type ProductServiceInput = z.infer<typeof productServiceSchema>;
 
 export const audienceSchema = z.object({
   target_audience: z.string().trim().min(5, "Describe your target audience").max(2000),
+  audience_type: z.string().trim().max(120).optional().or(z.literal("")),
   audience_age_range: z.string().trim().max(60).optional().or(z.literal("")),
   audience_locations: z.string().trim().max(300).optional().or(z.literal("")),
   audience_interests: z.string().trim().max(1000).optional().or(z.literal("")),
@@ -57,8 +58,5 @@ export const brandProfileSchema = businessDescriptionSchema
   .merge(audienceSchema)
   .merge(brandVoiceSchema)
   .merge(goalsSchema)
-  .merge(platformsSchema)
-  .extend({
-    audience_type: z.string().trim().max(120).optional().or(z.literal("")),
-  });
+  .merge(platformsSchema);
 export type BrandProfileInput = z.infer<typeof brandProfileSchema>;

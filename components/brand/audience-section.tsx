@@ -15,6 +15,7 @@ export function AudienceSection({ workspaceId, brandProfile }: { workspaceId: st
   const { toast } = useToast();
   const [values, setValues] = useState({
     target_audience: brandProfile?.target_audience ?? "",
+    audience_type: brandProfile?.audience_type ?? "",
     audience_age_range: brandProfile?.audience_age_range ?? "",
     audience_locations: brandProfile?.audience_locations ?? "",
     audience_interests: brandProfile?.audience_interests ?? "",
@@ -52,6 +53,9 @@ export function AudienceSection({ workspaceId, brandProfile }: { workspaceId: st
       <CardContent className="grid gap-4">
         <FormField label="Target audience" htmlFor="audience" error={errors.target_audience}>
           <Textarea id="audience" rows={3} value={values.target_audience} onChange={(e) => set("target_audience", e.target.value)} />
+        </FormField>
+        <FormField label="Audience type" htmlFor="audience-type" hint="Optional — e.g. B2B, B2C, both">
+          <Input id="audience-type" value={values.audience_type} onChange={(e) => set("audience_type", e.target.value)} placeholder="e.g. B2C" />
         </FormField>
         <div className="grid gap-4 sm:grid-cols-2">
           <FormField label="Age range" htmlFor="age-range">
