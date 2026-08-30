@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { GOAL_OPTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { updateBrandSectionAction } from "@/app/app/(shell)/brand/actions";
@@ -15,9 +16,13 @@ export function GoalsSection({ workspaceId, brandProfile }: { workspaceId: strin
   const [primaryGoal, setPrimaryGoal] = useState(brandProfile?.primary_goal ?? "");
   const [secondaryGoals, setSecondaryGoals] = useState<string[]>(brandProfile?.secondary_goals ?? []);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedChangesWarning(dirty);
 
   function toggleSecondary(value: string) {
     setSecondaryGoals((prev) => (prev.includes(value) ? prev.filter((g) => g !== value) : [...prev, value]));
+    setDirty(true);
   }
 
   async function handleSave() {
@@ -28,8 +33,12 @@ export function GoalsSection({ workspaceId, brandProfile }: { workspaceId: strin
     setSaving(true);
     const result = await updateBrandSectionAction(workspaceId, { primary_goal: primaryGoal, secondary_goals: secondaryGoals });
     setSaving(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Goals saved", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setDirty(false);
+      toast({ title: "Goals saved", variant: "success" });
+    }
   }
 
   return (
@@ -46,7 +55,10 @@ export function GoalsSection({ workspaceId, brandProfile }: { workspaceId: strin
               <button
                 key={g.value}
                 type="button"
-                onClick={() => setPrimaryGoal(g.value)}
+                onClick={() => {
+                  setPrimaryGoal(g.value);
+                  setDirty(true);
+                }}
                 className={cn(
                   "rounded-md border px-3 py-2.5 text-left text-sm font-medium transition-colors",
                   primaryGoal === g.value
@@ -70,9 +82,12 @@ export function GoalsSection({ workspaceId, brandProfile }: { workspaceId: strin
             ))}
           </div>
         </div>
-        <Button onClick={handleSave} loading={saving} className="justify-self-start">
-          Save changes
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty} className="justify-self-start">
+            Save changes
+          </Button>
+          {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
+        </div>
       </CardContent>
     </Card>
   );

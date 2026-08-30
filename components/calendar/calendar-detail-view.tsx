@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -84,6 +85,10 @@ export function CalendarDetailView({
   // the database until the user accepts them here.
   const [draftPosts, setDraftPosts] = useState<DraftPost[] | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
+
+  // A generated calendar's worth of draft posts is meaningful, easily
+  // multi-post work — warn before a tab close/refresh silently discards it.
+  useUnsavedChangesWarning(!!draftPosts && draftPosts.length > 0);
 
   function closePostDialog() {
     setSelectedPost(null);
@@ -343,8 +348,8 @@ export function CalendarDetailView({
       <AlertDialog open={confirmDeleteCalendar} onOpenChange={setConfirmDeleteCalendar}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {calendar.name}?</AlertDialogTitle>
-            <AlertDialogDescription>This deletes every post in this calendar. This can&apos;t be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Delete &ldquo;{calendar.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>This deletes every post in this calendar ({posts.length} post{posts.length === 1 ? "" : "s"}). This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

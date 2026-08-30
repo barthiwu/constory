@@ -164,8 +164,8 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove {deleteTarget?.name}?</AlertDialogTitle>
-            <AlertDialogDescription>This can&apos;t be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Remove &ldquo;{deleteTarget?.name}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>This removes it from your brand profile — Constory will no longer ground content in it. This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

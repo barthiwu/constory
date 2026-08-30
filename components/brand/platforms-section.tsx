@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { PLATFORM_OPTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { updateBrandSectionAction } from "@/app/app/(shell)/brand/actions";
@@ -13,9 +14,13 @@ export function PlatformsSection({ workspaceId, brandProfile }: { workspaceId: s
   const { toast } = useToast();
   const [selected, setSelected] = useState<string[]>(brandProfile?.selected_platforms ?? []);
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedChangesWarning(dirty);
 
   function toggle(value: string) {
     setSelected((prev) => (prev.includes(value) ? prev.filter((p) => p !== value) : [...prev, value]));
+    setDirty(true);
   }
 
   async function handleSave() {
@@ -26,8 +31,12 @@ export function PlatformsSection({ workspaceId, brandProfile }: { workspaceId: s
     setSaving(true);
     const result = await updateBrandSectionAction(workspaceId, { selected_platforms: selected });
     setSaving(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Platforms saved", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setDirty(false);
+      toast({ title: "Platforms saved", variant: "success" });
+    }
   }
 
   return (
@@ -55,9 +64,12 @@ export function PlatformsSection({ workspaceId, brandProfile }: { workspaceId: s
             );
           })}
         </div>
-        <Button onClick={handleSave} loading={saving} className="justify-self-start">
-          Save changes
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty} className="justify-self-start">
+            Save changes
+          </Button>
+          {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
+        </div>
       </CardContent>
     </Card>
   );

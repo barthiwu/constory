@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, Loader2, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   workspaceBasicsSchema,
   businessDescriptionSchema,
@@ -83,9 +84,16 @@ export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep,
   const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Tracks unsaved typing on the *current* step only — each step's fields
+  // are persisted the moment "Continue" succeeds (see persistStep below),
+  // so this only needs to cover the gap between typing and clicking it.
+  const [stepDirty, setStepDirty] = useState(false);
+
+  useUnsavedChangesWarning(stepDirty);
 
   function update<K extends keyof OnboardingState>(key: K, value: OnboardingState[K]) {
     setState((prev) => ({ ...prev, [key]: value }));
+    setStepDirty(true);
   }
 
   function goBack() {
@@ -103,6 +111,7 @@ export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep,
       toast({ title: "Couldn't save", description: result.error, variant: "error" });
       return false;
     }
+    setStepDirty(false);
     return true;
   }
 
@@ -120,6 +129,7 @@ export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep,
       setIsSubmitting(false);
       if ("error" in result) return toast({ title: "Couldn't save", description: result.error, variant: "error" });
       setWorkspaceId(result.workspaceId);
+      setStepDirty(false);
       return setStep(1);
     }
 
@@ -239,18 +249,13 @@ export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep,
             <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
+          // `loading` already renders Button's own spinner (see
+          // components/ui/button.tsx) — this used to also render a second,
+          // manual Loader2 inside the children while submitting, showing two
+          // spinners at once. Only the label needs to change now.
           <Button onClick={handleFinish} loading={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Building your strategy...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                Build My Strategy
-              </>
-            )}
+            <Sparkles className="h-4 w-4" />
+            {isSubmitting ? "Finishing setup..." : "Finish Setup"}
           </Button>
         )}
       </div>

@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { VOICE_OPTIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { updateBrandSectionAction } from "@/app/app/(shell)/brand/actions";
@@ -38,9 +39,13 @@ export function VoiceSection({ workspaceId, brandProfile }: { workspaceId: strin
   );
   const [custom, setCustom] = useState(hasStructuredData ? (brandProfile?.brand_voice ?? "") : (legacy?.custom ?? brandProfile?.brand_voice ?? ""));
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedChangesWarning(dirty);
 
   function toggle(value: string) {
     setTags((prev) => (prev.includes(value) ? prev.filter((t) => t !== value) : [...prev, value]));
+    setDirty(true);
   }
 
   async function handleSave() {
@@ -51,8 +56,12 @@ export function VoiceSection({ workspaceId, brandProfile }: { workspaceId: strin
     setSaving(true);
     const result = await updateBrandSectionAction(workspaceId, { brand_voice_traits: tags, brand_voice: custom.trim() });
     setSaving(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Brand voice saved", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setDirty(false);
+      toast({ title: "Brand voice saved", variant: "success" });
+    }
   }
 
   return (
@@ -88,13 +97,19 @@ export function VoiceSection({ workspaceId, brandProfile }: { workspaceId: strin
             id="voice-custom-description"
             rows={3}
             value={custom}
-            onChange={(e) => setCustom(e.target.value)}
+            onChange={(e) => {
+              setCustom(e.target.value);
+              setDirty(true);
+            }}
             placeholder="Anything else about your voice? e.g. Clear, confident and approachable."
           />
         </div>
-        <Button onClick={handleSave} loading={saving} className="justify-self-start">
-          Save changes
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty} className="justify-self-start">
+            Save changes
+          </Button>
+          {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
+        </div>
       </CardContent>
     </Card>
   );

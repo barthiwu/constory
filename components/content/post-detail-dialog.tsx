@@ -19,8 +19,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FormField } from "@/components/layout/form-field";
 import { ErrorState } from "@/components/layout/error-state";
+import { DiscardChangesDialog } from "@/components/layout/discard-changes-dialog";
 import { QualitySignals } from "@/components/content/quality-signals";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -62,6 +64,17 @@ export function PostDetailDialog({
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  useUnsavedChangesWarning(open && dirty);
+
+  function requestClose() {
+    if (dirty) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onOpenChange(false);
+  }
 
   // Re-sync local editable state whenever the `post` prop changes (e.g. a
   // different post is opened) — adjusted during render rather than in an
@@ -207,7 +220,7 @@ export function PostDetailDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(next) : requestClose())}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <div className="flex items-start justify-between gap-3 pr-6">
@@ -433,7 +446,10 @@ export function PostDetailDialog({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this post?</AlertDialogTitle>
-            <AlertDialogDescription>This can&apos;t be undone.</AlertDialogDescription>
+            <AlertDialogDescription>
+              &ldquo;{local.title}&rdquo; and everything written for it (caption, hashtags, creative direction) will be permanently removed. This
+              action cannot be undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -443,6 +459,16 @@ export function PostDetailDialog({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <DiscardChangesDialog
+        open={confirmDiscard}
+        onOpenChange={setConfirmDiscard}
+        onDiscard={() => {
+          setConfirmDiscard(false);
+          setDirty(false);
+          onOpenChange(false);
+        }}
+      />
     </Dialog>
   );
 }

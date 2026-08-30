@@ -54,7 +54,12 @@ export function UserMenu({
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem destructive onSelect={() => void logoutAction()}>
+        {/* Logging out is reversible (just sign back in) — it isn't a
+            destructive action, so it doesn't get the destructive/danger
+            styling reserved for permanent data loss (Phase 7 spec section
+            7: destructive actions must not look identical to ordinary
+            actions, which cuts both ways). */}
+        <DropdownMenuItem onSelect={() => void logoutAction()}>
           <LogOut className="h-4 w-4" aria-hidden="true" />
           Log out
         </DropdownMenuItem>

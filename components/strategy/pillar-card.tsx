@@ -110,8 +110,10 @@ export function PillarCard({ pillar, onChange, onDeleted }: { pillar: ContentPil
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove {pillar.name}?</AlertDialogTitle>
-            <AlertDialogDescription>Posts already using this pillar will keep their content but lose the pillar tag.</AlertDialogDescription>
+            <AlertDialogTitle>Remove the &ldquo;{pillar.name}&rdquo; pillar?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Posts already using this pillar will keep their content but lose the pillar tag. This action cannot be undone.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

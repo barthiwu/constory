@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { GenerationOverlay } from "@/components/ai/generation-overlay";
 import { STRATEGY_STAGES } from "@/lib/ai/stages";
 import { PillarCard } from "@/components/strategy/pillar-card";
@@ -46,6 +47,7 @@ export function StrategyView({
   const [generationError, setGenerationError] = useState<string | null>(null);
   const [pillars, setPillars] = useState(initialPillars);
   const [summary, setSummary] = useState(strategy?.strategy_summary ?? "");
+  const [summaryDirty, setSummaryDirty] = useState(false);
   const [savingSummary, setSavingSummary] = useState(false);
   const [addingPillar, setAddingPillar] = useState(false);
   const [pillarDraft, setPillarDraft] = useState({ name: "", description: "", recommended_percentage: 0 });
@@ -59,6 +61,12 @@ export function StrategyView({
   const [draft, setDraft] = useState<StrategyDraft | null>(null);
   const [draftEdited, setDraftEdited] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+
+  // Browser-level backstop against accidental loss (Phase 7 spec section 8):
+  // an in-review AI draft with edits, an unsaved summary edit, or a
+  // part-written manual strategy are all meaningful enough amounts of work
+  // to warn before a tab close/refresh discards them.
+  useUnsavedChangesWarning(draftEdited || summaryDirty || (creatingManually && manualDraft.strategy_summary.trim() !== ""));
 
   async function handleCreateManually() {
     if (!manualDraft.strategy_summary.trim()) {
@@ -143,8 +151,12 @@ export function StrategyView({
     setSavingSummary(true);
     const result = await updateStrategySummaryAction(strategy.id, { strategy_summary: summary });
     setSavingSummary(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Strategy summary saved", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+      return;
+    }
+    setSummaryDirty(false);
+    toast({ title: "Strategy summary saved", variant: "success" });
   }
 
   async function handleAddPillar() {
@@ -349,10 +361,20 @@ export function StrategyView({
           </Button>
         </CardHeader>
         <CardContent className="grid gap-4">
-          <Textarea rows={5} value={summary} onChange={(e) => setSummary(e.target.value)} />
-          <Button size="sm" onClick={handleSaveSummary} loading={savingSummary} className="justify-self-start">
-            Save changes
-          </Button>
+          <Textarea
+            rows={5}
+            value={summary}
+            onChange={(e) => {
+              setSummary(e.target.value);
+              setSummaryDirty(true);
+            }}
+          />
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleSaveSummary} loading={savingSummary} disabled={!summaryDirty} className="justify-self-start">
+              Save changes
+            </Button>
+            {summaryDirty && !savingSummary && <span className="text-xs text-text-muted">Unsaved changes</span>}
+          </div>
         </CardContent>
       </Card>
 

@@ -31,8 +31,18 @@ export function AddToCalendarDialog({
   const { toast } = useToast();
   const [calendarId, setCalendarId] = useState(calendars[0]?.id ?? "");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [platform, setPlatform] = useState("instagram");
+  const [platform, setPlatform] = useState(idea?.recommended_platform ?? "instagram");
   const [saving, setSaving] = useState(false);
+  // This dialog stays mounted between opens (IdeasView toggles `open` rather
+  // than remounting it), so re-derive the platform default from the newly
+  // selected idea's AI recommendation each time a different idea is opened,
+  // instead of leaving the previous idea's choice in place. The user can
+  // still change it freely — this only sets the starting point.
+  const [prefilledFor, setPrefilledFor] = useState<string | null>(idea?.id ?? null);
+  if (open && idea && idea.id !== prefilledFor) {
+    setPrefilledFor(idea.id);
+    setPlatform(idea.recommended_platform ?? "instagram");
+  }
 
   const activeCalendar = calendars.find((c) => c.id === calendarId);
   const platformOptions = activeCalendar?.selected_platforms?.length ? activeCalendar.selected_platforms : ["instagram", "facebook", "linkedin", "tiktok", "x"];
@@ -59,6 +69,13 @@ export function AddToCalendarDialog({
           <DialogTitle>Add to calendar</DialogTitle>
           <DialogDescription>{idea?.title}</DialogDescription>
         </DialogHeader>
+
+        {idea && (idea.recommended_format || idea.content_objective || idea.suggested_hook) && (
+          <p className="rounded-md bg-surface-secondary px-3 py-2 text-xs text-text-secondary">
+            The new post will start from this idea&apos;s brief{idea.recommended_format ? `, ${idea.recommended_format.toLowerCase()} format` : ""}
+            {idea.content_objective ? `, and a "${idea.content_objective}" objective` : ""} — you can change anything after it&apos;s created.
+          </p>
+        )}
 
         {calendars.length === 0 ? (
           <EmptyState

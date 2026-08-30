@@ -4,6 +4,7 @@ import { Pencil, Trash2, CalendarPlus, Sparkles, Archive, RotateCcw, Copy } from
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { platformLabel } from "@/lib/constants";
 import type { ContentIdea, ContentPillar, IdeaStatus } from "@/types/database";
 
 const STATUS_LABEL: Record<IdeaStatus, string> = { active: "Active", used: "Used", archived: "Archived" };
@@ -42,7 +43,13 @@ export function IdeaCard({
           <Badge variant={idea.status === "used" ? "success" : idea.status === "archived" ? "default" : "blue"}>
             {STATUS_LABEL[idea.status]}
           </Badge>
+          {idea.recommended_platform && <Badge variant="outline">{platformLabel(idea.recommended_platform)}</Badge>}
+          {idea.recommended_format && <Badge variant="outline">{idea.recommended_format}</Badge>}
+          {idea.content_objective && <Badge variant="outline">{idea.content_objective}</Badge>}
         </div>
+        {idea.suggested_hook && (
+          <p className="text-xs italic text-text-muted">&ldquo;{idea.suggested_hook}&rdquo;</p>
+        )}
         <div className="mt-auto flex items-center gap-1 border-t border-border pt-3">
           <Button variant="ghost" size="sm" onClick={onAddToCalendar} disabled={idea.status === "used"}>
             <CalendarPlus className="h-4 w-4" />

@@ -6,12 +6,13 @@ import { Check, Lightbulb, Plus, RefreshCw, Search, Sparkles, X } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
 import { useToast } from "@/components/ui/toast";
+import { PLATFORM_OPTIONS, CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -76,6 +77,8 @@ export function IdeasView({
   const [draftIdeas, setDraftIdeas] = useState<DraftIdea[] | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
 
+  useUnsavedChangesWarning(!!draftIdeas && draftIdeas.length > 0);
+
   const pillarById = new Map(pillars.map((p) => [p.id, p]));
 
   const filteredIdeas = useMemo(
@@ -130,7 +133,15 @@ export function IdeasView({
     setSavingDraft(true);
     const result = await saveGeneratedIdeasAction(
       workspaceId,
-      selected.map((d) => ({ title: d.title, description: d.description, content_pillar_id: d.content_pillar_id })),
+      selected.map((d) => ({
+        title: d.title,
+        description: d.description,
+        content_pillar_id: d.content_pillar_id,
+        recommended_platform: d.recommended_platform,
+        recommended_format: d.recommended_format,
+        content_objective: d.content_objective,
+        suggested_hook: d.suggested_hook,
+      })),
     );
     setSavingDraft(false);
     if (result.error) {
@@ -212,12 +223,71 @@ export function IdeasView({
                       ))}
                     </SelectContent>
                   </Select>
-                  <div className="flex flex-wrap gap-1.5">
-                    {d.recommended_platform && <Badge variant="outline">{d.recommended_platform}</Badge>}
-                    {d.recommended_format && <Badge variant="outline">{d.recommended_format}</Badge>}
-                    {d.content_objective && <Badge variant="outline">{d.content_objective}</Badge>}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="grid gap-1">
+                      <label className="text-xs text-text-muted">Platform</label>
+                      <Select
+                        value={d.recommended_platform ?? "none"}
+                        onValueChange={(v) => updateDraftIdea(i, { recommended_platform: v === "none" ? null : v })}
+                      >
+                        <SelectTrigger aria-label="Recommended platform" className="h-8 text-xs">
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {PLATFORM_OPTIONS.map((p) => (
+                            <SelectItem key={p.value} value={p.value}>
+                              {p.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-1">
+                      <label className="text-xs text-text-muted">Format</label>
+                      <Select
+                        value={d.recommended_format ?? "none"}
+                        onValueChange={(v) => updateDraftIdea(i, { recommended_format: v === "none" ? null : v })}
+                      >
+                        <SelectTrigger aria-label="Recommended format" className="h-8 text-xs">
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="none">None</SelectItem>
+                          {CONTENT_FORMAT_OPTIONS.map((f) => (
+                            <SelectItem key={f} value={f}>
+                              {f}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  {d.suggested_hook && <p className="text-xs italic text-text-muted">Suggested hook: &ldquo;{d.suggested_hook}&rdquo;</p>}
+                  <div className="grid gap-1">
+                    <label htmlFor={`draft-objective-${i}`} className="text-xs text-text-muted">
+                      Objective
+                    </label>
+                    <Input
+                      id={`draft-objective-${i}`}
+                      className="h-8 text-xs"
+                      value={d.content_objective ?? ""}
+                      onChange={(e) => updateDraftIdea(i, { content_objective: e.target.value || null })}
+                      placeholder="e.g. Educate, Engage, Promote"
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label htmlFor={`draft-hook-${i}`} className="text-xs text-text-muted">
+                      Suggested hook
+                    </label>
+                    <Textarea
+                      id={`draft-hook-${i}`}
+                      rows={2}
+                      className="text-xs"
+                      value={d.suggested_hook ?? ""}
+                      onChange={(e) => updateDraftIdea(i, { suggested_hook: e.target.value || null })}
+                      placeholder="An opening line that stops the scroll"
+                    />
+                  </div>
                 </CardContent>
               </Card>
             ))}
@@ -348,8 +418,8 @@ export function IdeasView({
       <AlertDialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete this idea?</AlertDialogTitle>
-            <AlertDialogDescription>This can&apos;t be undone.</AlertDialogDescription>
+            <AlertDialogTitle>Delete &ldquo;{deleteTarget?.title}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>This content idea will be permanently removed. This action cannot be undone.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

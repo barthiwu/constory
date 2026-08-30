@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { updateProfileAction, updateWorkspaceSettingsAction, changePasswordAction } from "@/app/app/(shell)/settings/actions";
 import { logoutAction } from "@/app/(auth)/actions";
 
@@ -26,10 +27,12 @@ export function SettingsView({
   const { toast } = useToast();
 
   const [name, setName] = useState(fullName);
+  const [profileDirty, setProfileDirty] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
 
   const [wsName, setWsName] = useState(workspaceName);
   const [wsDescription, setWsDescription] = useState(workspaceDescription);
+  const [workspaceDirty, setWorkspaceDirty] = useState(false);
   const [savingWorkspace, setSavingWorkspace] = useState(false);
 
   const [password, setPassword] = useState("");
@@ -37,20 +40,30 @@ export function SettingsView({
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [savingPassword, setSavingPassword] = useState(false);
 
+  useUnsavedChangesWarning(profileDirty || workspaceDirty);
+
   async function handleSaveProfile() {
     setSavingProfile(true);
     const result = await updateProfileAction(name);
     setSavingProfile(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Profile updated", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setProfileDirty(false);
+      toast({ title: "Profile updated", variant: "success" });
+    }
   }
 
   async function handleSaveWorkspace() {
     setSavingWorkspace(true);
     const result = await updateWorkspaceSettingsAction(workspaceId, { name: wsName, description: wsDescription });
     setSavingWorkspace(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Workspace updated", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setWorkspaceDirty(false);
+      toast({ title: "Workspace updated", variant: "success" });
+    }
   }
 
   async function handleChangePassword() {
@@ -76,14 +89,24 @@ export function SettingsView({
         </CardHeader>
         <CardContent className="grid gap-4 sm:max-w-md">
           <FormField label="Name" htmlFor="settings-name">
-            <Input id="settings-name" value={name} onChange={(e) => setName(e.target.value)} />
+            <Input
+              id="settings-name"
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setProfileDirty(true);
+              }}
+            />
           </FormField>
           <FormField label="Email" htmlFor="settings-email" hint="Contact support to change your email.">
             <Input id="settings-email" value={email} disabled />
           </FormField>
-          <Button onClick={handleSaveProfile} loading={savingProfile} className="justify-self-start">
-            Save changes
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSaveProfile} loading={savingProfile} disabled={!profileDirty} className="justify-self-start">
+              Save changes
+            </Button>
+            {profileDirty && !savingProfile && <span className="text-xs text-text-muted">Unsaved changes</span>}
+          </div>
         </CardContent>
       </Card>
 
@@ -94,14 +117,32 @@ export function SettingsView({
         </CardHeader>
         <CardContent className="grid gap-4 sm:max-w-md">
           <FormField label="Workspace name" htmlFor="settings-ws-name">
-            <Input id="settings-ws-name" value={wsName} onChange={(e) => setWsName(e.target.value)} />
+            <Input
+              id="settings-ws-name"
+              value={wsName}
+              onChange={(e) => {
+                setWsName(e.target.value);
+                setWorkspaceDirty(true);
+              }}
+            />
           </FormField>
           <FormField label="Description" htmlFor="settings-ws-description" hint="Optional">
-            <Textarea id="settings-ws-description" rows={3} value={wsDescription} onChange={(e) => setWsDescription(e.target.value)} />
+            <Textarea
+              id="settings-ws-description"
+              rows={3}
+              value={wsDescription}
+              onChange={(e) => {
+                setWsDescription(e.target.value);
+                setWorkspaceDirty(true);
+              }}
+            />
           </FormField>
-          <Button onClick={handleSaveWorkspace} loading={savingWorkspace} className="justify-self-start">
-            Save changes
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button onClick={handleSaveWorkspace} loading={savingWorkspace} disabled={!workspaceDirty} className="justify-self-start">
+              Save changes
+            </Button>
+            {workspaceDirty && !savingWorkspace && <span className="text-xs text-text-muted">Unsaved changes</span>}
+          </div>
         </CardContent>
       </Card>
 
@@ -121,7 +162,9 @@ export function SettingsView({
             Update password
           </Button>
           <div className="border-t border-border pt-4">
-            <Button variant="destructive-ghost" onClick={() => void logoutAction()}>
+            {/* Reversible, not destructive — see the matching note in
+                components/layout/user-menu.tsx. */}
+            <Button variant="secondary" onClick={() => void logoutAction()}>
               Log out
             </Button>
           </div>

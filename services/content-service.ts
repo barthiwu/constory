@@ -16,6 +16,10 @@ export interface IdeaInput {
   title: string;
   description?: string;
   content_pillar_id?: string | null;
+  recommended_platform?: string | null;
+  recommended_format?: string | null;
+  content_objective?: string | null;
+  suggested_hook?: string | null;
 }
 
 export async function createIdea(
@@ -71,12 +75,24 @@ export async function duplicateIdea(supabase: DB, ideaId: string): Promise<Conte
       title: `${original.title} (Copy)`,
       description: original.description,
       content_pillar_id: original.content_pillar_id,
+      recommended_platform: original.recommended_platform,
+      recommended_format: original.recommended_format,
+      content_objective: original.content_objective,
+      suggested_hook: original.suggested_hook,
     },
     "USER",
   );
 }
 
-/** Converts an idea into a draft calendar post and marks the idea as used. */
+/**
+ * Converts an idea into a draft calendar post and marks the idea as used.
+ *
+ * Any accepted AI metadata on the idea (format/objective/hook) is carried
+ * over as an intelligent default on the new post — never forced, since the
+ * user picks `platform` themselves in the Add to Calendar dialog (which
+ * itself defaults to idea.recommended_platform) and can change every one of
+ * these fields afterward in the post workspace.
+ */
 export async function addIdeaToCalendar(
   supabase: DB,
   idea: ContentIdea,
@@ -90,6 +106,9 @@ export async function addIdeaToCalendar(
     platform,
     title: idea.title,
     brief: idea.description,
+    format: idea.recommended_format,
+    objective: idea.content_objective,
+    hook: idea.suggested_hook,
     status: "draft",
   };
   const post = await createPost(supabase, calendarId, input);

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { audienceSchema } from "@/lib/validations/brand";
 import { updateBrandSectionAction } from "@/app/app/(shell)/brand/actions";
 import type { BrandProfile } from "@/types/database";
@@ -23,9 +24,13 @@ export function AudienceSection({ workspaceId, brandProfile }: { workspaceId: st
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedChangesWarning(dirty);
 
   function set<K extends keyof typeof values>(key: K, v: string) {
     setValues((prev) => ({ ...prev, [key]: v }));
+    setDirty(true);
   }
 
   async function handleSave() {
@@ -40,8 +45,12 @@ export function AudienceSection({ workspaceId, brandProfile }: { workspaceId: st
     setSaving(true);
     const result = await updateBrandSectionAction(workspaceId, parsed.data);
     setSaving(false);
-    if (result.error) toast({ title: "Couldn't save", description: result.error, variant: "error" });
-    else toast({ title: "Audience saved", variant: "success" });
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+    } else {
+      setDirty(false);
+      toast({ title: "Audience saved", variant: "success" });
+    }
   }
 
   return (
@@ -71,9 +80,12 @@ export function AudienceSection({ workspaceId, brandProfile }: { workspaceId: st
         <FormField label="Challenges / problems" htmlFor="problems">
           <Textarea id="problems" rows={2} value={values.audience_problems} onChange={(e) => set("audience_problems", e.target.value)} />
         </FormField>
-        <Button onClick={handleSave} loading={saving} className="justify-self-start">
-          Save changes
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty} className="justify-self-start">
+            Save changes
+          </Button>
+          {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
+        </div>
       </CardContent>
     </Card>
   );

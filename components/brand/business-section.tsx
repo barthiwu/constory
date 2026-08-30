@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { businessDescriptionSchema } from "@/lib/validations/brand";
 import { updateBrandSectionAction } from "@/app/app/(shell)/brand/actions";
 import type { BrandProfile } from "@/types/database";
@@ -13,8 +14,11 @@ import type { BrandProfile } from "@/types/database";
 export function BusinessSection({ workspaceId, brandProfile }: { workspaceId: string; brandProfile: BrandProfile | null }) {
   const { toast } = useToast();
   const [value, setValue] = useState(brandProfile?.business_description ?? "");
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  useUnsavedChangesWarning(dirty);
 
   async function handleSave() {
     const parsed = businessDescriptionSchema.safeParse({ business_description: value });
@@ -29,6 +33,7 @@ export function BusinessSection({ workspaceId, brandProfile }: { workspaceId: st
     if (result.error) {
       toast({ title: "Couldn't save", description: result.error, variant: "error" });
     } else {
+      setDirty(false);
       toast({ title: "Business description saved", variant: "success" });
     }
   }
@@ -41,11 +46,22 @@ export function BusinessSection({ workspaceId, brandProfile }: { workspaceId: st
       </CardHeader>
       <CardContent className="grid gap-4">
         <FormField label="Business description" htmlFor="business-description" error={error ?? undefined}>
-          <Textarea id="business-description" rows={8} value={value} onChange={(e) => setValue(e.target.value)} />
+          <Textarea
+            id="business-description"
+            rows={8}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setDirty(true);
+            }}
+          />
         </FormField>
-        <Button onClick={handleSave} loading={saving} className="justify-self-start">
-          Save changes
-        </Button>
+        <div className="flex items-center gap-3">
+          <Button onClick={handleSave} loading={saving} disabled={!dirty} className="justify-self-start">
+            Save changes
+          </Button>
+          {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
+        </div>
       </CardContent>
     </Card>
   );
