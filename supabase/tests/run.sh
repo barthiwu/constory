@@ -38,16 +38,34 @@ run_psql "$SCRIPT_DIR/01b_legacy_workspace_fixture.sql"
 echo "== Applying migration 0005 (onboarding progress) =="
 run_psql "$MIGRATIONS_DIR"/0005_*.sql
 
-echo "== Applying remaining migrations (0006+) =="
+echo "== Applying migrations 0006-0009 (creates Phase 7.5 tables) =="
 shopt -s nullglob
-for f in "$MIGRATIONS_DIR"/000[6-9]_*.sql "$MIGRATIONS_DIR"/00[1-9][0-9]_*.sql; do
+for f in "$MIGRATIONS_DIR"/000[6-9]_*.sql; do
   echo "  -> $(basename "$f")"
   run_psql "$f"
 done
 shopt -u nullglob
 
-echo "== Re-granting privileges again for any tables created by 0005+ (e.g. Phase 7.5's subscriptions/credit_balances/ai_usage_ledger) =="
+echo "== Re-granting privileges again for any tables created by 0005-0009 (e.g. Phase 7.5's subscriptions/credit_balances/ai_usage_ledger) =="
 run_psql "$SCRIPT_DIR/00_bootstrap_auth_sim.sql"
+
+# IMPORTANT: 0010+ must run AFTER the broad re-grant above, not before it.
+# 00_bootstrap_auth_sim.sql's `grant all on all tables in schema public` is a
+# blanket grant that exists only to simulate PostgREST's baseline table
+# exposure in this local harness — real Supabase never re-issues it between
+# migrations. Migration 0010 intentionally REVOKEs that broad UPDATE and
+# replaces it with column-level grants (PHASE7_5_AUDIT_REPORT.md Security
+# Findings §1); running the blanket re-grant after 0010 would silently
+# re-broaden `authenticated`'s access and defeat the fix without any test
+# failure to show for it. Keep any future privilege-narrowing migration in
+# this later loop too, not the one above.
+echo "== Applying remaining migrations (0010+) =="
+shopt -s nullglob
+for f in "$MIGRATIONS_DIR"/00[1-9][0-9]_*.sql; do
+  echo "  -> $(basename "$f")"
+  run_psql "$f"
+done
+shopt -u nullglob
 
 for f in "$SCRIPT_DIR"/0[2-9]_*.sql; do
   echo ""

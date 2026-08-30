@@ -98,6 +98,19 @@ export async function canCreateStrategy(supabase: DB, workspaceId: string): Prom
   return ALLOWED;
 }
 
+/**
+ * Just the locked flag (spec §27-28), for write paths that don't have their
+ * own numeric limit to check (post creation, idea-to-calendar) but must
+ * still refuse writes into a workspace a downgrade has locked —
+ * PHASE7_5_AUDIT_REPORT.md Security Findings §2. RLS enforces this too (see
+ * migration 0011), but callers should still surface a clear message instead
+ * of a raw RLS error where practical.
+ */
+export async function isWorkspaceLocked(supabase: DB, workspaceId: string): Promise<boolean> {
+  const ent = await getWorkspaceEntitlements(supabase, workspaceId);
+  return ent?.locked ?? false;
+}
+
 /** Just the current pillar-count limit for a workspace's plan, or null if unlimited — used to reject an oversized AI draft before it's saved. */
 export async function getPillarCountLimit(supabase: DB, workspaceId: string): Promise<{ limit: number; planName: string } | null> {
   const ent = await getWorkspaceEntitlements(supabase, workspaceId);

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
 import { setActiveWorkspaces, getResolvedSubscription } from "@/services/billing-service";
 import { getPlanEntitlements } from "@/lib/billing/plans";
@@ -76,7 +76,10 @@ export async function setActiveWorkspacesAction(workspaceIds: string[]): Promise
   try {
     const sub = await getResolvedSubscription(supabase, user.id);
     const limit = getPlanEntitlements(sub?.plan_id ?? "free").brands;
-    const result = await setActiveWorkspaces(supabase, user.id, workspaceIds, limit);
+    // Admin client for the actual billing_locked writes — see migration
+    // 0010 / PHASE7_5_AUDIT_REPORT.md Security Findings §1. `user.id` is
+    // the server-verified session owner, not client input.
+    const result = await setActiveWorkspaces(createAdminClient(), user.id, workspaceIds, limit);
     if (!result.ok) return { error: result.error };
     revalidatePath("/app/settings/billing");
     revalidatePath("/app", "layout");

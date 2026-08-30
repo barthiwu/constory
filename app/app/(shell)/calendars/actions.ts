@@ -13,10 +13,13 @@ import {
   duplicatePost,
   deletePost,
   getPosts,
+  getCalendar,
   type CreateCalendarInput,
   type CreatePostInput,
 } from "@/services/calendar-service";
-import { canCreateCalendar } from "@/lib/billing/entitlements";
+import { canCreateCalendar, isWorkspaceLocked } from "@/lib/billing/entitlements";
+
+const LOCKED_MESSAGE = "This brand is locked because your plan doesn't currently cover it. Manage your active brands from Settings → Billing.";
 
 export interface ActionResult {
   error?: string;
@@ -82,6 +85,9 @@ export async function duplicateCalendarAction(workspaceId: string, calendarId: s
  */
 export async function saveGeneratedCalendarAction(calendarId: string, posts: CreatePostInput[]): Promise<ActionResult & { count?: number }> {
   const supabase = await createClient();
+  const calendar = await getCalendar(supabase, calendarId);
+  if (!calendar) return { error: "That calendar couldn't be found." };
+  if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
   try {
     const existing = await getPosts(supabase, calendarId);
     if (existing.length > 0) {
@@ -102,6 +108,9 @@ export async function saveGeneratedCalendarAction(calendarId: string, posts: Cre
 
 export async function createPostAction(calendarId: string, input: CreatePostInput): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+  const calendar = await getCalendar(supabase, calendarId);
+  if (!calendar) return { error: "That calendar couldn't be found." };
+  if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
   try {
     const post = await createPost(supabase, calendarId, input);
     revalidatePath(`/app/calendars/${calendarId}`);
@@ -128,6 +137,9 @@ export async function updatePostAction(
 
 export async function duplicatePostAction(calendarId: string, postId: string): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+  const calendar = await getCalendar(supabase, calendarId);
+  if (!calendar) return { error: "That calendar couldn't be found." };
+  if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
   try {
     const post = await duplicatePost(supabase, postId);
     revalidatePath(`/app/calendars/${calendarId}`);

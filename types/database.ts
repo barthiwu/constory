@@ -369,7 +369,6 @@ export type Database = {
           p_workspace_id: string;
           p_action_type: AIActionType | null;
           p_credits: number;
-          p_plan_allocation: number;
         };
         Returns: ConsumeAiCreditsResult[];
       };
@@ -385,6 +384,12 @@ export type Database = {
           p_credit_allocation: number;
         };
         Returns: undefined;
+      };
+      get_credit_balance: {
+        Args: {
+          p_owner_id: string;
+        };
+        Returns: CreditBalance | null;
       };
     };
     Enums: Record<string, never>;

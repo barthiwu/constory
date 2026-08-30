@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createIdea, bulkCreateIdeas, updateIdea, deleteIdea, duplicateIdea, addIdeaToCalendar, type IdeaInput } from "@/services/content-service";
 import type { IdeaStatus } from "@/types/database";
-import { canCreateIdea } from "@/lib/billing/entitlements";
+import { canCreateIdea, isWorkspaceLocked } from "@/lib/billing/entitlements";
+import { getCalendar } from "@/services/calendar-service";
+
+const LOCKED_MESSAGE = "This brand is locked because your plan doesn't currently cover it. Manage your active brands from Settings → Billing.";
 
 export interface ActionResult {
   error?: string;
@@ -91,6 +94,9 @@ export async function addIdeaToCalendarAction(
   try {
     const { data: idea, error } = await supabase.from("content_ideas").select("*").eq("id", ideaId).single();
     if (error || !idea) return { error: "That idea couldn't be found." };
+    const calendar = await getCalendar(supabase, calendarId);
+    if (!calendar) return { error: "That calendar couldn't be found." };
+    if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
     const post = await addIdeaToCalendar(supabase, idea, calendarId, scheduledDate, platform);
     revalidatePath("/app/ideas");
     revalidatePath(`/app/calendars/${calendarId}`);

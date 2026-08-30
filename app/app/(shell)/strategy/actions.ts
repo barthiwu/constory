@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { saveStrategy, updateStrategySummary, updatePillar, createPillar, deletePillar } from "@/services/strategy-service";
 import type { ContentMixItem } from "@/types/database";
-import { canCreatePillar, getPillarCountLimit } from "@/lib/billing/entitlements";
+import { canCreatePillar, canCreateStrategy, getPillarCountLimit } from "@/lib/billing/entitlements";
 
 export interface ActionResult {
   error?: string;
@@ -19,6 +19,8 @@ export async function createStrategyAction(
   input: { strategy_summary: string; monthly_theme?: string | null; content_mix: ContentMixItem[] },
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  const check = await canCreateStrategy(supabase, workspaceId);
+  if (!check.allowed) return { error: check.reason ?? "This brand is locked because your plan doesn't currently cover it." };
   try {
     await saveStrategy(supabase, workspaceId, {
       strategy_summary: input.strategy_summary,
@@ -52,6 +54,11 @@ export async function saveGeneratedStrategyAction(
   edited: boolean,
 ): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+
+  const strategyCheck = await canCreateStrategy(supabase, workspaceId);
+  if (!strategyCheck.allowed) {
+    return { error: strategyCheck.reason ?? "This brand is locked because your plan doesn't currently cover it." };
+  }
 
   // A fresh AI-generated draft can include more pillars than the plan
   // allows (the generator isn't plan-aware). Rather than silently truncate

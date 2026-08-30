@@ -19,10 +19,19 @@ export async function getSubscription(supabase: DB, ownerId: string): Promise<Su
   return data as Subscription | null;
 }
 
+/**
+ * Reads the account's credit balance, lazily rolling an elapsed period over
+ * to a fresh 0-used balance at the current plan's allocation first — via the
+ * get_credit_balance() RPC (migration 0012) — so a page that only displays
+ * the balance (Billing, Dashboard) never shows a stale, already-expired
+ * period the way a raw table read would if no AI action had happened yet to
+ * trigger consume_ai_credits()'s own rollover. See
+ * PHASE7_5_AUDIT_REPORT.md Security Findings §3.
+ */
 export async function getCreditBalance(supabase: DB, ownerId: string): Promise<CreditBalance | null> {
-  const { data, error } = await supabase.from("credit_balances").select("*").eq("owner_id", ownerId).maybeSingle();
+  const { data, error } = await supabase.rpc("get_credit_balance", { p_owner_id: ownerId });
   if (error) throw error;
-  return data as CreditBalance | null;
+  return (data as CreditBalance | null) ?? null;
 }
 
 /** The owner (billing account) a workspace belongs to. */
@@ -108,13 +117,18 @@ export async function getResolvedSubscription(supabase: DB, ownerId: string): Pr
  * call this BEFORE invoking the AI provider (spec §33: never call the AI
  * provider when credits are insufficient). Also lazily rolls the credit
  * period over if it has elapsed, so the number shown is always current.
+ *
+ * `planId` is accepted for call-site convenience (callers already have it
+ * resolved) but is no longer sent to the database — as of migration 0010,
+ * consume_ai_credits() resolves the account's real plan allocation itself
+ * from `subscriptions.plan_id`, closing the price-authority bypass found by
+ * PHASE7_5_AUDIT_REPORT.md (a caller could previously claim any allocation).
  */
-export async function checkAiCredits(supabase: DB, workspaceId: string, planId: PlanId): Promise<ConsumeAiCreditsResult> {
+export async function checkAiCredits(supabase: DB, workspaceId: string, _planId: PlanId): Promise<ConsumeAiCreditsResult> {
   const { data, error } = await supabase.rpc("consume_ai_credits", {
     p_workspace_id: workspaceId,
     p_action_type: null,
     p_credits: 0,
-    p_plan_allocation: getPlanCreditAllowance(planId),
   });
   if (error) throw error;
   const row = data?.[0];
@@ -126,19 +140,21 @@ export async function checkAiCredits(supabase: DB, workspaceId: string, planId: 
  * ever call this AFTER a successful AI generation (spec §8) — never before,
  * and never on a failed generation. Concurrency-safe: see the SQL function's
  * comment in migration 0008 for how the row lock prevents overspend.
+ *
+ * `planId` is accepted for call-site convenience but no longer sent to the
+ * database — see the note on checkAiCredits above.
  */
 export async function consumeAiCredits(
   supabase: DB,
   workspaceId: string,
   action: AIActionType,
   credits: number,
-  planId: PlanId,
+  _planId: PlanId,
 ): Promise<ConsumeAiCreditsResult> {
   const { data, error } = await supabase.rpc("consume_ai_credits", {
     p_workspace_id: workspaceId,
     p_action_type: action,
     p_credits: credits,
-    p_plan_allocation: getPlanCreditAllowance(planId),
   });
   if (error) throw error;
   const row = data?.[0];
@@ -162,6 +178,15 @@ export async function listRecentUsage(supabase: DB, ownerId: string, limit = 20)
  * the credit period to the new plan's allowance in one atomic call. See
  * lib/billing/provider.ts for the caller-facing BillingProvider interface —
  * this is the low-level primitive it's built on.
+ *
+ * MUST be called with the ADMIN client (createAdminClient()) — as of
+ * migration 0010, apply_plan_change() is no longer callable by a regular
+ * authenticated session at all (a direct PostgREST/RPC call previously let
+ * any signed-in user grant themselves any plan for free; see
+ * PHASE7_5_AUDIT_REPORT.md, Security Findings §1). `ownerId` must already be
+ * server-verified (the caller's own authenticated session, or a value
+ * already checked against it) before this is invoked — the function itself
+ * no longer checks auth.uid(), since there is none under the service role.
  */
 export async function applyPlanChange(
   supabase: DB,
@@ -201,6 +226,12 @@ export async function resumeSubscription(supabase: DB, ownerId: string): Promise
  * the oldest `limit` workspaces active and locks the rest (read-only, no new
  * content) — deterministic and simple for V1. `setActiveWorkspaces` lets the
  * owner pick a different set afterward, as long as the count fits the limit.
+ *
+ * MUST be called with the ADMIN client — as of migration 0010, regular
+ * authenticated sessions no longer have UPDATE on `workspaces.billing_locked`
+ * at all (previously any workspace editor could self-reverse a downgrade
+ * lock directly via PostgREST; see PHASE7_5_AUDIT_REPORT.md, Security
+ * Findings §1).
  */
 export async function lockExcessWorkspaces(supabase: DB, ownerId: string, limit: number | null): Promise<void> {
   const workspaces = await listOwnedWorkspaces(supabase, ownerId);
@@ -337,6 +368,10 @@ export async function recordBillingEvent(adminSupabase: DB, input: RecordBilling
  * downgrade, instead of accepting the deterministic oldest-first default —
  * spec §28's "select the 3 brands you want to keep active." Rejected if the
  * requested active set exceeds the current plan's brand limit.
+ *
+ * The `limit` check itself can run against the regular client (it's a
+ * read), but the `billing_locked` writes below need the ADMIN client as of
+ * migration 0010 — see the note on lockExcessWorkspaces above.
  */
 export async function setActiveWorkspaces(
   supabase: DB,

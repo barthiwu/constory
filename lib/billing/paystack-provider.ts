@@ -21,6 +21,7 @@ import { getPlanEntitlements, priceForInterval } from "@/lib/billing/plans";
 import { initializeTransaction, verifyTransaction, verifyPaystackSignature } from "@/lib/billing/paystack-client";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
 import { activatePaidPlanFromPayment, recordBillingEvent } from "@/services/billing-service";
+import { createAdminClient } from "@/lib/supabase/server";
 import type { BillingProvider, CheckoutResult } from "@/lib/billing/provider";
 
 type DB = SupabaseClient<Database>;
@@ -94,10 +95,13 @@ export class PaystackBillingProvider implements BillingProvider {
    * already been verified elsewhere. Mirrors ManualBillingProvider's
    * changePlan exactly, since neither path collects payment itself.
    */
-  async changePlan(supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
-    await applyPlanChange(supabase, ownerId, planId, billingInterval);
+  async changePlan(_supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
+    // Admin client — see the identical note in lib/billing/provider.ts's
+    // ManualBillingProvider.changePlan (migration 0010 / audit §1).
+    const admin = createAdminClient();
+    await applyPlanChange(admin, ownerId, planId, billingInterval);
     const limit = getPlanEntitlements(planId).brands;
-    await lockExcessWorkspaces(supabase, ownerId, limit);
+    await lockExcessWorkspaces(admin, ownerId, limit);
   }
 
   /**

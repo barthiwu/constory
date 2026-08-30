@@ -10,6 +10,7 @@ import type { Database, PlanId, BillingInterval } from "@/types/database";
 import { applyPlanChange, cancelSubscription, resumeSubscription, getWorkspaceOwnerId, lockExcessWorkspaces } from "@/services/billing-service";
 import { getPlanEntitlements } from "@/lib/billing/plans";
 import { isPaystackConfigured } from "@/lib/billing/paystack-client";
+import { createAdminClient } from "@/lib/supabase/server";
 
 type DB = SupabaseClient<Database>;
 
@@ -67,10 +68,16 @@ class ManualBillingProvider implements BillingProvider {
     };
   }
 
-  async changePlan(supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
-    await applyPlanChange(supabase, ownerId, planId, billingInterval);
+  async changePlan(_supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
+    // Admin client, not the caller's session — apply_plan_change() and
+    // workspaces.billing_locked writes require the service role as of
+    // migration 0010 (see PHASE7_5_AUDIT_REPORT.md, Security Findings §1).
+    // `ownerId` is already server-verified by the caller (the authenticated
+    // user's own session, resolved before this method is ever reached).
+    const admin = createAdminClient();
+    await applyPlanChange(admin, ownerId, planId, billingInterval);
     const limit = getPlanEntitlements(planId).brands;
-    await lockExcessWorkspaces(supabase, ownerId, limit);
+    await lockExcessWorkspaces(admin, ownerId, limit);
   }
 
   async cancelSubscription(supabase: DB, ownerId: string): Promise<void> {
