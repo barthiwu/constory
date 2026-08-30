@@ -184,16 +184,12 @@ export function OnboardingWizard() {
       toast({ title: "Couldn't finish onboarding", description: result.error, variant: "error" });
       return;
     }
-    if (!result.strategyGenerated) {
-      toast({
-        title: "Brand saved",
-        description: result.error ?? "We couldn't generate your strategy automatically — you can generate it from the Strategy page.",
-        variant: "warning",
-      });
-    } else {
-      toast({ title: "Your strategy is ready", variant: "success" });
-    }
-    router.push("/app/strategy");
+    toast({
+      title: "Brand profile saved",
+      description: "You're all set. Generate your content strategy anytime from the Strategy page.",
+      variant: "success",
+    });
+    router.push("/app/dashboard");
     router.refresh();
   }
 

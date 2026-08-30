@@ -3,11 +3,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { createWorkspace, updateWorkspace } from "@/services/workspace-service";
 import { upsertBrandProfile, createProductService } from "@/services/brand-service";
-import { saveStrategy } from "@/services/strategy-service";
-import { buildAIContext } from "@/lib/ai/context";
-import { generateStrategy } from "@/lib/ai/generate-strategy";
-import { AIGenerationError } from "@/lib/ai/client";
-import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
 
 export interface OnboardingWorkspaceInput {
   name: string;
@@ -101,32 +96,9 @@ export async function completeOnboardingAction(
     return { ok: false, strategyGenerated: false, error: "We couldn't save your brand information. Please try again." };
   }
 
-  // Brand data is safely saved at this point regardless of what happens next —
-  // strategy generation failing here should never be reported as onboarding failing.
-  let generationId: string | null = null;
-  try {
-    const context = await buildAIContext(supabase, workspaceId);
-    generationId = await logGenerationStart(supabase, workspaceId, user.id, "strategy", { onboarding: true });
-    const { strategy } = await generateStrategy(context);
-    const saved = await saveStrategy(supabase, workspaceId, {
-      strategy_summary: strategy.strategy_summary,
-      monthly_theme: strategy.monthly_theme,
-      content_mix: strategy.pillars.map((p) => ({ pillar: p.name, percentage: p.recommended_percentage })),
-      source: "AI",
-      pillars: strategy.pillars.map((p) => ({
-        name: p.name,
-        description: p.description,
-        recommended_percentage: p.recommended_percentage,
-        source: "AI" as const,
-      })),
-    });
-    await logGenerationComplete(supabase, generationId, { strategyId: saved.id });
-    return { ok: true, strategyGenerated: true };
-  } catch (err) {
-    if (generationId) {
-      await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});
-    }
-    const message = err instanceof AIGenerationError ? err.userMessage : "We couldn't generate your strategy automatically.";
-    return { ok: true, strategyGenerated: false, error: message };
-  }
+  // Onboarding's job in this phase is only to persist the brand profile.
+  // Strategy generation is a separate, explicit action the user takes later
+  // from the Strategy page — it is never triggered automatically here, so
+  // this flow never depends on OPENAI_API_KEY being configured.
+  return { ok: true, strategyGenerated: false };
 }
