@@ -45,12 +45,15 @@ export function CalendarDetailView({
   initialPosts,
   pillars,
   autoGenerate,
+  initialPostId,
 }: {
   workspaceId: string;
   calendar: ContentCalendar;
   initialPosts: CalendarPost[];
   pillars: ContentPillar[];
   autoGenerate: boolean;
+  /** Deep-links directly to a post (e.g. from the dashboard's upcoming-content list). */
+  initialPostId?: string;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -59,9 +62,16 @@ export function CalendarDetailView({
   const [view, setView] = useState<ViewMode>("month");
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
-  const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(null);
+  const [selectedPost, setSelectedPost] = useState<CalendarPost | null>(
+    initialPostId ? (initialPosts.find((p) => p.id === initialPostId) ?? null) : null,
+  );
   const [createOpen, setCreateOpen] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
+
+  function closePostDialog() {
+    setSelectedPost(null);
+    if (initialPostId) router.replace(`/app/calendars/${calendar.id}`, { scroll: false });
+  }
 
   // Keep local `posts` in sync when the server-provided `initialPosts` prop
   // changes (e.g. after router.refresh()) — adjusted during render, per
@@ -203,7 +213,7 @@ export function CalendarDetailView({
         </>
       )}
 
-      <PostDetailDialog calendarId={calendar.id} post={selectedPost} pillars={pillars} open={!!selectedPost} onOpenChange={(open) => !open && setSelectedPost(null)} />
+      <PostDetailDialog calendarId={calendar.id} post={selectedPost} pillars={pillars} open={!!selectedPost} onOpenChange={(open) => !open && closePostDialog()} />
 
       <CreatePostDialog calendarId={calendar.id} calendar={calendar} pillars={pillars} open={createOpen} onOpenChange={setCreateOpen} />
 

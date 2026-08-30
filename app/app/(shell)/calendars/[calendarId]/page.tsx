@@ -18,10 +18,10 @@ export default async function CalendarDetailPage({
   searchParams,
 }: {
   params: Promise<{ calendarId: string }>;
-  searchParams: Promise<{ generate?: string }>;
+  searchParams: Promise<{ generate?: string; post?: string }>;
 }) {
   const { calendarId } = await params;
-  const { generate } = await searchParams;
+  const { generate, post } = await searchParams;
   const supabase = await createClient();
   const workspace = await getCurrentWorkspace(supabase);
   if (!workspace) return null;
@@ -39,6 +39,7 @@ export default async function CalendarDetailPage({
       initialPosts={posts}
       pillars={pillars}
       autoGenerate={generate === "1" && posts.length === 0}
+      initialPostId={post}
     />
   );
 }
