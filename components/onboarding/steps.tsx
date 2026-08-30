@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -69,17 +69,39 @@ export function StepBusiness({ state, update, errors }: StepProps) {
   );
 }
 
-export function StepProducts({ state, update }: StepProps) {
-  const [draft, setDraft] = useState<ProductDraft>({ name: "", description: "", category: "" });
+const EMPTY_PRODUCT_DRAFT: ProductDraft = { name: "", description: "", category: "" };
 
-  function addProduct() {
+export function StepProducts({ state, update }: StepProps) {
+  const [draft, setDraft] = useState<ProductDraft>(EMPTY_PRODUCT_DRAFT);
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+
+  function saveDraft() {
     if (!draft.name.trim()) return;
-    update("products", [...state.products, draft]);
-    setDraft({ name: "", description: "", category: "" });
+    if (editingIndex === null) {
+      update("products", [...state.products, draft]);
+    } else {
+      update(
+        "products",
+        state.products.map((p, i) => (i === editingIndex ? draft : p)),
+      );
+      setEditingIndex(null);
+    }
+    setDraft(EMPTY_PRODUCT_DRAFT);
+  }
+
+  function startEdit(index: number) {
+    setEditingIndex(index);
+    setDraft(state.products[index]);
+  }
+
+  function cancelEdit() {
+    setEditingIndex(null);
+    setDraft(EMPTY_PRODUCT_DRAFT);
   }
 
   function removeProduct(index: number) {
     update("products", state.products.filter((_, i) => i !== index));
+    if (editingIndex === index) cancelEdit();
   }
 
   return (
@@ -87,18 +109,32 @@ export function StepProducts({ state, update }: StepProps) {
       <StepHeading title="Products & services" description="Add what you offer — Constory uses this to ground content in what you actually sell." />
       <div className="grid gap-3">
         {state.products.map((p, i) => (
-          <div key={i} className="flex items-start justify-between gap-3 rounded-md border border-border bg-app-background p-3">
+          <div
+            key={i}
+            className={cn(
+              "flex items-start justify-between gap-3 rounded-md border bg-app-background p-3",
+              editingIndex === i ? "border-constory-blue" : "border-border",
+            )}
+          >
             <div className="grid gap-0.5">
               <p className="text-sm font-medium text-text-primary">{p.name}</p>
               {p.description && <p className="text-sm text-text-secondary">{p.description}</p>}
             </div>
-            <Button variant="ghost" size="icon" onClick={() => removeProduct(i)} aria-label={`Remove ${p.name}`}>
-              <Trash2 className="h-4 w-4 text-danger" />
-            </Button>
+            <div className="flex shrink-0 items-center gap-1">
+              <Button variant="ghost" size="icon" onClick={() => startEdit(i)} aria-label={`Edit ${p.name}`}>
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => removeProduct(i)} aria-label={`Remove ${p.name}`}>
+                <Trash2 className="h-4 w-4 text-danger" />
+              </Button>
+            </div>
           </div>
         ))}
 
         <div className="grid gap-3 rounded-md border border-dashed border-border p-4">
+          {editingIndex !== null && (
+            <p className="text-xs font-medium text-constory-blue">Editing &ldquo;{state.products[editingIndex]?.name}&rdquo;</p>
+          )}
           <Input placeholder="Product or service name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <Textarea
             placeholder="Short description (optional)"
@@ -106,10 +142,24 @@ export function StepProducts({ state, update }: StepProps) {
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           />
-          <Button type="button" variant="secondary" onClick={addProduct} disabled={!draft.name.trim()} className="justify-self-start">
-            <Plus className="h-4 w-4" />
-            Add another
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="secondary" onClick={saveDraft} disabled={!draft.name.trim()} className="justify-self-start">
+              {editingIndex === null ? (
+                <>
+                  <Plus className="h-4 w-4" />
+                  Add another
+                </>
+              ) : (
+                "Save changes"
+              )}
+            </Button>
+            {editingIndex !== null && (
+              <Button type="button" variant="ghost" onClick={cancelEdit}>
+                <X className="h-4 w-4" />
+                Cancel
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </div>
