@@ -1,10 +1,12 @@
 "use client";
 
-import { Pencil, Trash2, CalendarPlus, Sparkles } from "lucide-react";
+import { Pencil, Trash2, CalendarPlus, Sparkles, Archive, RotateCcw } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import type { ContentIdea, ContentPillar } from "@/types/database";
+import type { ContentIdea, ContentPillar, IdeaStatus } from "@/types/database";
+
+const STATUS_LABEL: Record<IdeaStatus, string> = { active: "Active", used: "Used", archived: "Archived" };
 
 export function IdeaCard({
   idea,
@@ -12,12 +14,14 @@ export function IdeaCard({
   onEdit,
   onDelete,
   onAddToCalendar,
+  onStatusChange,
 }: {
   idea: ContentIdea;
   pillar?: ContentPillar;
   onEdit: () => void;
   onDelete: () => void;
   onAddToCalendar: () => void;
+  onStatusChange: (status: IdeaStatus) => void;
 }) {
   return (
     <Card className="flex flex-col">
@@ -33,14 +37,24 @@ export function IdeaCard({
         {idea.description && <p className="flex-1 text-sm text-text-secondary">{idea.description}</p>}
         <div className="flex flex-wrap items-center gap-1.5">
           {pillar && <Badge variant="blue">{pillar.name}</Badge>}
-          {idea.status === "used" && <Badge variant="success">Used</Badge>}
-          {idea.status === "archived" && <Badge>Archived</Badge>}
+          <Badge variant={idea.status === "used" ? "success" : idea.status === "archived" ? "default" : "blue"}>
+            {STATUS_LABEL[idea.status]}
+          </Badge>
         </div>
         <div className="mt-auto flex items-center gap-1 border-t border-border pt-3">
           <Button variant="ghost" size="sm" onClick={onAddToCalendar} disabled={idea.status === "used"}>
             <CalendarPlus className="h-4 w-4" />
             Add to Calendar
           </Button>
+          {idea.status === "archived" ? (
+            <Button variant="ghost" size="icon" onClick={() => onStatusChange("active")} aria-label={`Restore ${idea.title}`} title="Restore to active">
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon" onClick={() => onStatusChange("archived")} aria-label={`Archive ${idea.title}`} title="Archive">
+              <Archive className="h-4 w-4" />
+            </Button>
+          )}
           <Button variant="ghost" size="icon" onClick={onEdit} aria-label={`Edit ${idea.title}`}>
             <Pencil className="h-4 w-4" />
           </Button>

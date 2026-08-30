@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lightbulb, Plus, Sparkles } from "lucide-react";
+import { Lightbulb, Plus, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
 import { useToast } from "@/components/ui/toast";
@@ -22,8 +24,16 @@ import { IDEAS_STAGES } from "@/lib/ai/stages";
 import { IdeaCard } from "@/components/content/idea-card";
 import { IdeaDialog } from "@/components/content/idea-dialog";
 import { AddToCalendarDialog } from "@/components/content/add-to-calendar-dialog";
-import { deleteIdeaAction } from "@/app/app/(shell)/ideas/actions";
-import type { ContentIdea, ContentPillar, ContentCalendar } from "@/types/database";
+import { deleteIdeaAction, updateIdeaAction } from "@/app/app/(shell)/ideas/actions";
+import { filterIdeas } from "@/lib/ideas-filter";
+import type { ContentIdea, ContentPillar, ContentCalendar, IdeaStatus } from "@/types/database";
+
+const STATUS_FILTERS: Array<{ value: IdeaStatus | "all"; label: string }> = [
+  { value: "all", label: "All statuses" },
+  { value: "active", label: "Active" },
+  { value: "used", label: "Used" },
+  { value: "archived", label: "Archived" },
+];
 
 export function IdeasView({
   workspaceId,
@@ -43,8 +53,24 @@ export function IdeasView({
   const [deleteTarget, setDeleteTarget] = useState<ContentIdea | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
+  const [pillarFilter, setPillarFilter] = useState<string>("all");
 
   const pillarById = new Map(pillars.map((p) => [p.id, p]));
+
+  const filteredIdeas = useMemo(
+    () => filterIdeas(ideas, { search, status: statusFilter, pillar: pillarFilter }),
+    [ideas, search, statusFilter, pillarFilter],
+  );
+
+  const filtersActive = search.trim() !== "" || statusFilter !== "all" || pillarFilter !== "all";
+
+  async function handleStatusChange(idea: ContentIdea, status: IdeaStatus) {
+    const result = await updateIdeaAction(idea.id, { status });
+    if (result.error) toast({ title: "Couldn't update status", description: result.error, variant: "error" });
+    else router.refresh();
+  }
 
   async function handleGenerate() {
     setGenerating(true);
@@ -91,28 +117,92 @@ export function IdeasView({
       {ideas.length === 0 ? (
         <EmptyState
           icon={Lightbulb}
-          title="Every great content plan starts with an idea"
-          description="Add your own idea, or let Constory generate some based on your strategy."
+          title="No Content Ideas Yet"
+          description="Start building a library of ideas you can use in future content — add your own, or let Constory generate some based on your strategy."
           action={
             <Button onClick={() => setDialogIdea(null)}>
               <Plus className="h-4 w-4" />
-              Add Idea
+              Create Idea
             </Button>
           }
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {ideas.map((idea) => (
-            <IdeaCard
-              key={idea.id}
-              idea={idea}
-              pillar={idea.content_pillar_id ? pillarById.get(idea.content_pillar_id) : undefined}
-              onEdit={() => setDialogIdea(idea)}
-              onDelete={() => setDeleteTarget(idea)}
-              onAddToCalendar={() => setCalendarIdea(idea)}
+        <>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative w-full max-w-xs">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search ideas..."
+                aria-label="Search ideas"
+                className="pl-9"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as IdeaStatus | "all")}>
+              <SelectTrigger className="w-40" aria-label="Filter by status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_FILTERS.map((s) => (
+                  <SelectItem key={s.value} value={s.value}>
+                    {s.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={pillarFilter} onValueChange={setPillarFilter}>
+              <SelectTrigger className="w-44" aria-label="Filter by pillar">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All pillars</SelectItem>
+                <SelectItem value="none">No pillar</SelectItem>
+                {pillars.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {filteredIdeas.length === 0 ? (
+            <EmptyState
+              icon={Search}
+              title="No ideas match your filters"
+              description="Try a different search term or clear the filters."
+              action={
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSearch("");
+                    setStatusFilter("all");
+                    setPillarFilter("all");
+                  }}
+                  disabled={!filtersActive}
+                >
+                  Clear filters
+                </Button>
+              }
             />
-          ))}
-        </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {filteredIdeas.map((idea) => (
+                <IdeaCard
+                  key={idea.id}
+                  idea={idea}
+                  pillar={idea.content_pillar_id ? pillarById.get(idea.content_pillar_id) : undefined}
+                  onEdit={() => setDialogIdea(idea)}
+                  onDelete={() => setDeleteTarget(idea)}
+                  onAddToCalendar={() => setCalendarIdea(idea)}
+                  onStatusChange={(status) => handleStatusChange(idea, status)}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       <IdeaDialog
