@@ -7,6 +7,9 @@ import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
 import { getPost, getCalendar } from "@/services/calendar-service";
 import type { CreatePostInput } from "@/services/calendar-service";
+import { canUseAI } from "@/lib/billing/entitlements";
+import { consumeAiCredits } from "@/services/billing-service";
+import type { AIActionType } from "@/lib/billing/credit-costs";
 
 const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("topic"), postId: z.string().uuid() }),
@@ -60,6 +63,16 @@ export async function POST(request: Request) {
   const calendar = await getCalendar(supabase, post.calendar_id);
   if (!calendar) return NextResponse.json({ error: "Calendar not found." }, { status: 404 });
 
+  // Every action on this route is a single-field/single-post AI touch-up —
+  // "improve" maps to improve_content, everything else to regenerate_post
+  // (spec §4.1: both cost 1 credit, so the mapping only affects the usage
+  // ledger's action_type label, not the amount charged).
+  const creditAction: AIActionType = body.action === "improve" ? "improve_content" : "regenerate_post";
+  const credits = await canUseAI(supabase, calendar.workspace_id, creditAction);
+  if (!credits.allowed) {
+    return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
+  }
+
   let generationId: string | null = null;
   try {
     const context = await buildAIContext(supabase, calendar.workspace_id);
@@ -92,6 +105,8 @@ export async function POST(request: Request) {
       fields = { [body.field]: value } as Partial<CreatePostInput>;
       output = { field: body.field };
     }
+
+    if (credits.planId) await consumeAiCredits(supabase, calendar.workspace_id, creditAction, credits.cost, credits.planId);
 
     await logGenerationComplete(supabase, generationId, { ...output, saved: false });
 

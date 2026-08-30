@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { switchWorkspace, createWorkspace, type CreateWorkspaceInput } from "@/services/workspace-service";
+import { canCreateBrand } from "@/lib/billing/entitlements";
 
 export async function switchWorkspaceAction(workspaceId: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = await createClient();
@@ -32,6 +33,9 @@ export async function createWorkspaceAction(input: CreateWorkspaceInput): Promis
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not authenticated." };
+
+  const brandCheck = await canCreateBrand(supabase, user.id);
+  if (!brandCheck.allowed) return { error: brandCheck.reason ?? "Your plan doesn't allow another brand right now." };
 
   try {
     const workspace = await createWorkspace(supabase, user.id, input);

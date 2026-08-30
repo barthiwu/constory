@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createIdea, bulkCreateIdeas, updateIdea, deleteIdea, duplicateIdea, addIdeaToCalendar, type IdeaInput } from "@/services/content-service";
 import type { IdeaStatus } from "@/types/database";
+import { canCreateIdea } from "@/lib/billing/entitlements";
 
 export interface ActionResult {
   error?: string;
@@ -17,6 +18,8 @@ export interface ActionResult {
  */
 export async function saveGeneratedIdeasAction(workspaceId: string, ideas: IdeaInput[]): Promise<ActionResult & { count?: number }> {
   const supabase = await createClient();
+  const check = await canCreateIdea(supabase, workspaceId, ideas.length);
+  if (!check.allowed) return { error: check.reason ?? "You've reached your plan's saved-ideas limit." };
   try {
     const saved = await bulkCreateIdeas(supabase, workspaceId, ideas);
     revalidatePath("/app/ideas");
@@ -29,6 +32,8 @@ export async function saveGeneratedIdeasAction(workspaceId: string, ideas: IdeaI
 
 export async function createIdeaAction(workspaceId: string, input: IdeaInput): Promise<ActionResult> {
   const supabase = await createClient();
+  const check = await canCreateIdea(supabase, workspaceId);
+  if (!check.allowed) return { error: check.reason ?? "You've reached your plan's saved-ideas limit." };
   try {
     await createIdea(supabase, workspaceId, input, "USER");
     revalidatePath("/app/ideas");
@@ -62,6 +67,11 @@ export async function deleteIdeaAction(ideaId: string): Promise<ActionResult> {
 
 export async function duplicateIdeaAction(ideaId: string): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+  const { data: original } = await supabase.from("content_ideas").select("workspace_id").eq("id", ideaId).maybeSingle();
+  if (original) {
+    const check = await canCreateIdea(supabase, original.workspace_id);
+    if (!check.allowed) return { error: check.reason ?? "You've reached your plan's saved-ideas limit." };
+  }
   try {
     const copy = await duplicateIdea(supabase, ideaId);
     revalidatePath("/app/ideas");

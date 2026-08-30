@@ -53,3 +53,13 @@ engine, not to hide them behind an assertion library.
   correctly for new workspaces, the pre-existing-workspace backfill logic
   marks already-onboarded workspaces complete, and a non-member cannot read or
   advance another workspace's onboarding progress.
+- `07_billing_test.sql` — Phase 7.5 monetization: a true stranger (Carol, with
+  zero relationship to Alice) cannot read or spend Alice's billing/credit
+  state via RLS or `consume_ai_credits`; a workspace member who is not the
+  owner (Bob) can read but not write Alice's subscription; `consume_ai_credits`
+  atomically deducts credits, writes a usage-ledger row, rejects a spend once
+  the balance is insufficient without touching `credits_used` or the ledger,
+  supports a zero-credit "peek" that logs nothing, and rolls the credit period
+  over (reset usage, adopt the new allocation) once it has elapsed;
+  `apply_plan_change` can only be called by the account owner (`is_billing_owner`),
+  never by another member.

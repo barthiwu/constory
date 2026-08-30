@@ -26,6 +26,9 @@ export default function MarketingPage() {
           <span className="text-lg font-semibold tracking-tight text-constory-black">Constory</span>
           <nav className="flex items-center gap-2">
             <Button asChild variant="ghost" size="sm">
+              <Link href="/pricing">Pricing</Link>
+            </Button>
+            <Button asChild variant="ghost" size="sm">
               <Link href="/login">Log in</Link>
             </Button>
             <Button asChild size="sm">
@@ -113,6 +116,9 @@ export default function MarketingPage() {
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-sm text-text-secondary sm:flex-row sm:px-6">
           <span>© {new Date().getFullYear()} Constory. All rights reserved.</span>
           <div className="flex gap-4">
+            <Link href="/pricing" className="hover:text-text-primary">
+              Pricing
+            </Link>
             <Link href="/login" className="hover:text-text-primary">
               Log in
             </Link>

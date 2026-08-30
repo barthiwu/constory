@@ -34,7 +34,10 @@ Copy `.env.example` to `.env.local` and fill in real values. **Never commit
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Yes | Supabase dashboard → Project Settings → API | Public — safe to expose to the browser. This is the anon/publishable key, not the service-role key. |
 | `SUPABASE_SECRET_KEY` | Yes | Supabase dashboard → Project Settings → API | **Server-only.** Never reference this from client components, and never prefix a secret with `NEXT_PUBLIC_`. |
 | `OPENAI_API_KEY` | No | https://platform.openai.com/api-keys | **Server-only.** The app remains fully usable without it — see below. |
-| `NEXT_PUBLIC_APP_URL` | Yes | — | Base URL used for auth redirect/email links. `http://localhost:3000` for local dev. |
+| `NEXT_PUBLIC_APP_URL` | Yes | — | Base URL used for auth redirect/email links, and as the Paystack checkout callback URL. `http://localhost:3000` for local dev. |
+| `PAYSTACK_SECRET_KEY` | No | Paystack dashboard → Settings → API Keys & Webhooks | **Server-only, never in the client bundle.** Selects the Paystack billing provider when set (`lib/billing/provider.ts`); without it the app falls back to a no-payment "Manual" provider that activates plan changes immediately, for development without live billing. |
+| `PAYSTACK_WEBHOOK_SECRET` | No | Paystack dashboard → Settings → API Keys & Webhooks | **Server-only.** Used to verify webhook signatures; falls back to `PAYSTACK_SECRET_KEY` if unset (Paystack signs webhooks with the secret key). |
+| `PAYSTACK_PLAN_CODE_CREATOR_MONTHLY` / `_QUARTERLY` / `_ANNUAL`, `PAYSTACK_PLAN_CODE_PRO_MONTHLY` / `_QUARTERLY` / `_ANNUAL` | No (required for Paystack checkout on paid plans) | Paystack dashboard → Plans | Maps each (plan, billing interval) to its Paystack Plan code — see `lib/billing/paystack-plan-codes.ts`. Free never needs one. |
 
 ### Database setup
 
@@ -61,6 +64,29 @@ generation is a separate, explicit action the user takes from within the app
 error message — not a crash — if the key isn't configured. The key is never
 sent to the browser.
 
+### Billing & payments
+
+Constory's commercial layer (plans, AI credits, entitlements) is built behind
+a `BillingProvider` interface (`lib/billing/provider.ts`) so the rest of the
+app never talks to a payment processor directly. Two implementations exist:
+
+- **Manual** (`lib/billing/paystack-client.ts`'s `isPaystackConfigured()`
+  returns false, i.e. `PAYSTACK_SECRET_KEY` unset): plan changes take effect
+  immediately with no payment collected. This is the default in a fresh
+  clone and lets the entire commercial system — pricing page, entitlements,
+  credits, upgrade/downgrade — be exercised without a Paystack account.
+- **Paystack** (`PAYSTACK_SECRET_KEY` set): paid-plan changes start a
+  Paystack-hosted checkout (`POST /transaction/initialize`) and redirect the
+  browser there. A plan is only ever activated by a server-verified payment —
+  either `app/api/webhooks/paystack/route.ts` (signature-checked against the
+  raw request body, deduplicated via the `billing_events` table) or the
+  "verify on return" path on `/app/settings/billing?reference=...`
+  (`lib/billing/paystack-provider.ts`'s `verifyAndActivatePaymentReference`,
+  which calls `GET /transaction/verify/:reference` before touching anything).
+  The client-side "payment succeeded" redirect is never trusted on its own.
+  Paystack plan codes are read centrally from `PAYSTACK_PLAN_CODE_*` env vars
+  (`lib/billing/paystack-plan-codes.ts`), never hard-coded.
+
 ## Testing
 
 ```bash
@@ -81,9 +107,13 @@ app/(auth)/            Public auth pages: login, signup, forgot/reset password
 app/app/onboarding/    Onboarding wizard (server-persisted, resumable)
 app/app/(shell)/       Authenticated app: dashboard, brand, strategy, ideas, calendars, settings
 app/api/ai/            AI generation endpoints (strategy, ideas, calendar, post)
+app/api/webhooks/      Inbound provider webhooks (Paystack)
+app/(marketing)/pricing/  Public pricing page
+app/app/(shell)/settings/billing/  Plan/subscription/AI-credit management
 components/            UI components, grouped by feature
-services/               Data-access layer (one file per domain: workspace, brand, strategy, ...)
+services/               Data-access layer (one file per domain: workspace, brand, strategy, billing, ...)
 lib/                    Supabase clients, validation schemas, AI client, shared helpers
+lib/billing/            Plan definitions, entitlements, credit costs, the BillingProvider abstraction, Paystack client
 supabase/migrations/    SQL migrations (schema, triggers, RLS policies)
 supabase/tests/         Reproducible database/RLS test scripts
 ```

@@ -46,6 +46,9 @@ for f in "$MIGRATIONS_DIR"/000[6-9]_*.sql "$MIGRATIONS_DIR"/00[1-9][0-9]_*.sql; 
 done
 shopt -u nullglob
 
+echo "== Re-granting privileges again for any tables created by 0005+ (e.g. Phase 7.5's subscriptions/credit_balances/ai_usage_ledger) =="
+run_psql "$SCRIPT_DIR/00_bootstrap_auth_sim.sql"
+
 for f in "$SCRIPT_DIR"/0[2-9]_*.sql; do
   echo ""
   echo "############################################################"

@@ -35,6 +35,8 @@ export type Workspace = {
   primary_market: string | null;
   onboarding_step: number;
   onboarding_completed: boolean;
+  /** Set by a plan downgrade that no longer covers every workspace this owner has — see lib/billing. */
+  billing_locked: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -170,6 +172,81 @@ export type AiGeneration = {
   created_at: string;
 };
 
+// =============================================================================
+// Phase 7.5 — billing, subscriptions, AI credits
+// =============================================================================
+
+export type PlanId = "free" | "creator" | "pro";
+export type SubscriptionStatus = "active" | "trialing" | "past_due" | "cancelled" | "expired";
+export type BillingInterval = "monthly" | "quarterly" | "annual";
+export type BillingProviderName = "none" | "manual" | "paystack";
+export type AIActionType =
+  | "generate_post"
+  | "regenerate_post"
+  | "improve_content"
+  | "generate_ideas"
+  | "generate_strategy"
+  | "generate_calendar";
+export type UsageRequestStatus = "success" | "failed";
+
+export type Subscription = {
+  id: string;
+  owner_id: string;
+  plan_id: PlanId;
+  status: SubscriptionStatus;
+  billing_interval: BillingInterval;
+  current_period_start: string;
+  current_period_end: string;
+  cancel_at_period_end: boolean;
+  provider: BillingProviderName;
+  provider_customer_id: string | null;
+  provider_subscription_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreditBalance = {
+  id: string;
+  owner_id: string;
+  period_start: string;
+  period_end: string;
+  monthly_allocation: number;
+  credits_used: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AiUsageLedgerRow = {
+  id: string;
+  owner_id: string;
+  workspace_id: string | null;
+  user_id: string | null;
+  action_type: AIActionType;
+  credits_used: number;
+  request_status: UsageRequestStatus;
+  created_at: string;
+};
+
+export type ConsumeAiCreditsResult = {
+  ok: boolean;
+  remaining: number;
+  monthly_allocation: number;
+  reason: string;
+};
+
+export type BillingEventStatus = "processed" | "ignored" | "error";
+
+export type BillingEvent = {
+  id: string;
+  provider: "paystack";
+  provider_event_id: string;
+  event_type: string;
+  owner_id: string | null;
+  status: BillingEventStatus;
+  detail: string | null;
+  created_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -260,9 +337,56 @@ export type Database = {
         Update: Partial<AiGeneration>;
         Relationships: [];
       };
+      subscriptions: {
+        Row: Subscription;
+        Insert: Partial<Subscription> & { owner_id: string };
+        Update: Partial<Subscription>;
+        Relationships: [];
+      };
+      credit_balances: {
+        Row: CreditBalance;
+        Insert: Partial<CreditBalance> & { owner_id: string };
+        Update: Partial<CreditBalance>;
+        Relationships: [];
+      };
+      ai_usage_ledger: {
+        Row: AiUsageLedgerRow;
+        Insert: Partial<AiUsageLedgerRow> & { owner_id: string; action_type: AIActionType; credits_used: number };
+        Update: Partial<AiUsageLedgerRow>;
+        Relationships: [];
+      };
+      billing_events: {
+        Row: BillingEvent;
+        Insert: Partial<BillingEvent> & { provider_event_id: string; event_type: string };
+        Update: Partial<BillingEvent>;
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      consume_ai_credits: {
+        Args: {
+          p_workspace_id: string;
+          p_action_type: AIActionType | null;
+          p_credits: number;
+          p_plan_allocation: number;
+        };
+        Returns: ConsumeAiCreditsResult[];
+      };
+      apply_plan_change: {
+        Args: {
+          p_owner_id: string;
+          p_plan_id: PlanId;
+          p_status: SubscriptionStatus;
+          p_billing_interval: BillingInterval;
+          p_period_start: string;
+          p_period_end: string;
+          p_cancel_at_period_end: boolean;
+          p_credit_allocation: number;
+        };
+        Returns: undefined;
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

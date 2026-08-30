@@ -6,6 +6,8 @@ import { generateStrategy } from "@/lib/ai/generate-strategy";
 import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
 import { getWorkspace } from "@/services/workspace-service";
+import { canUseAI } from "@/lib/billing/entitlements";
+import { consumeAiCredits } from "@/services/billing-service";
 
 const bodySchema = z.object({ workspaceId: z.string().uuid() });
 
@@ -29,6 +31,11 @@ export async function POST(request: Request) {
   const workspace = await getWorkspace(supabase, workspaceId);
   if (!workspace) return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
 
+  const credits = await canUseAI(supabase, workspaceId, "generate_strategy");
+  if (!credits.allowed) {
+    return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
+  }
+
   let generationId: string | null = null;
   try {
     const context = await buildAIContext(supabase, workspaceId);
@@ -37,6 +44,8 @@ export async function POST(request: Request) {
     });
 
     const { strategy } = await generateStrategy(context);
+
+    if (credits.planId) await consumeAiCredits(supabase, workspaceId, "generate_strategy", credits.cost, credits.planId);
 
     await logGenerationComplete(supabase, generationId, {
       pillarCount: strategy.pillars.length,

@@ -7,6 +7,8 @@ import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
 import { getWorkspace } from "@/services/workspace-service";
 import { getStrategy, getPillars } from "@/services/strategy-service";
+import { canUseAI } from "@/lib/billing/entitlements";
+import { consumeAiCredits } from "@/services/billing-service";
 
 const bodySchema = z.object({
   workspaceId: z.string().uuid(),
@@ -37,12 +39,23 @@ export async function POST(request: Request) {
   const workspace = await getWorkspace(supabase, workspaceId);
   if (!workspace) return NextResponse.json({ error: "Workspace not found." }, { status: 404 });
 
+  // Verify entitlement + available credits BEFORE calling the AI provider —
+  // never spend the cost of an OpenAI call just to reject the result (spec §33).
+  const credits = await canUseAI(supabase, workspaceId, "generate_ideas");
+  if (!credits.allowed) {
+    return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
+  }
+
   let generationId: string | null = null;
   try {
     const context = await buildAIContext(supabase, workspaceId);
     generationId = await logGenerationStart(supabase, workspaceId, user.id, "ideas", { count, focusPillarName, platform, objective, format });
 
     const { ideas } = await generateIdeas(context, { count, focusPillarName, platform, objective, format });
+
+    // Only ever consume credits once the AI call has actually succeeded
+    // (spec §8) — a failed generation below never reaches this line.
+    if (credits.planId) await consumeAiCredits(supabase, workspaceId, "generate_ideas", credits.cost, credits.planId);
 
     const strategy = await getStrategy(supabase, workspaceId);
     const pillars = strategy ? await getPillars(supabase, strategy.id) : [];

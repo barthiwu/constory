@@ -9,11 +9,13 @@ import { getCalendars, getPosts } from "@/services/calendar-service";
 import { getIdeas } from "@/services/content-service";
 import { getPrimaryCta } from "@/lib/dashboard";
 import { getDashboardInsights } from "@/lib/intelligence/dashboard-insights";
+import { getCreditBalance } from "@/services/billing-service";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/layout/empty-state";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
+import { CreditMeter } from "@/components/billing/credit-meter";
 import { formatDate } from "@/lib/utils";
 import type { CalendarPost } from "@/types/database";
 
@@ -36,11 +38,12 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", user!.id).maybeSingle();
 
-  const [brandProfile, strategy, calendars, ideas] = await Promise.all([
+  const [brandProfile, strategy, calendars, ideas, creditBalance] = await Promise.all([
     getBrandProfile(supabase, workspace.id),
     getStrategy(supabase, workspace.id),
     getCalendars(supabase, workspace.id),
     getIdeas(supabase, workspace.id),
+    getCreditBalance(supabase, workspace.owner_id),
   ]);
   const activeCalendar = calendars[0] ?? null;
   const posts = activeCalendar ? await getPosts(supabase, activeCalendar.id) : [];
@@ -80,13 +83,34 @@ export default async function DashboardPage() {
           </h1>
           <p className="text-sm text-text-secondary">Plan your content, organize your ideas, and keep your strategy moving forward.</p>
         </div>
-        <Button asChild>
-          <Link href={primaryCta.href}>
-            <Sparkles className="h-4 w-4" />
-            {primaryCta.label}
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-3">
+          {creditBalance && (
+            <Link href="/app/settings/billing">
+              <CreditMeter used={creditBalance.credits_used} allocation={creditBalance.monthly_allocation} resetDate={creditBalance.period_end} compact />
+            </Link>
+          )}
+          <Button asChild>
+            <Link href={primaryCta.href}>
+              <Sparkles className="h-4 w-4" />
+              {primaryCta.label}
+            </Link>
+          </Button>
+        </div>
       </div>
+
+      {workspace.billing_locked && (
+        <div className="flex items-start gap-3 rounded-lg border border-warning bg-warning-light px-4 py-3 text-sm">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+          <p className="text-text-primary">
+            This brand is locked because it&rsquo;s beyond your current plan&rsquo;s brand limit. It&rsquo;s read-only until you upgrade or choose a
+            different active brand in{" "}
+            <Link href="/app/settings/billing" className="font-medium underline">
+              Settings → Billing
+            </Link>
+            .
+          </p>
+        </div>
+      )}
 
       {isBrandNewUser ? (
         <EmptyState

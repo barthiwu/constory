@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { saveStrategy, updateStrategySummary, updatePillar, createPillar, deletePillar } from "@/services/strategy-service";
 import type { ContentMixItem } from "@/types/database";
+import { canCreatePillar, getPillarCountLimit } from "@/lib/billing/entitlements";
 
 export interface ActionResult {
   error?: string;
@@ -51,6 +52,19 @@ export async function saveGeneratedStrategyAction(
   edited: boolean,
 ): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+
+  // A fresh AI-generated draft can include more pillars than the plan
+  // allows (the generator isn't plan-aware). Rather than silently truncate
+  // what the user is about to save, reject with a clear, actionable message
+  // — the review screen lets them remove pillars down to the limit and save
+  // again, or upgrade.
+  const pillarLimitCheck = await getPillarCountLimit(supabase, workspaceId);
+  if (pillarLimitCheck !== null && draft.pillars.length > pillarLimitCheck.limit) {
+    return {
+      error: `Your ${pillarLimitCheck.planName} plan includes ${pillarLimitCheck.limit} content pillars, and this draft has ${draft.pillars.length}. Remove some before saving, or upgrade for unlimited pillars.`,
+    };
+  }
+
   try {
     const source = edited ? ("AI_EDITED" as const) : ("AI" as const);
     const saved = await saveStrategy(supabase, workspaceId, {
@@ -102,6 +116,8 @@ export async function createPillarAction(
   input: { name: string; description: string; recommended_percentage: number },
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  const check = await canCreatePillar(supabase, workspaceId, strategyId);
+  if (!check.allowed) return { error: check.reason ?? "You've reached your plan's content pillar limit." };
   try {
     await createPillar(supabase, workspaceId, strategyId, input);
     revalidatePath("/app/strategy");

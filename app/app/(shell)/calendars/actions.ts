@@ -16,6 +16,7 @@ import {
   type CreateCalendarInput,
   type CreatePostInput,
 } from "@/services/calendar-service";
+import { canCreateCalendar } from "@/lib/billing/entitlements";
 
 export interface ActionResult {
   error?: string;
@@ -26,6 +27,8 @@ export async function createCalendarAction(
   input: CreateCalendarInput,
 ): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+  const check = await canCreateCalendar(supabase, workspaceId);
+  if (!check.allowed) return { error: check.reason ?? "You've reached your plan's calendar limit." };
   try {
     const calendar = await createCalendar(supabase, workspaceId, input);
     revalidatePath("/app/calendars");
@@ -59,6 +62,8 @@ export async function deleteCalendarAction(calendarId: string): Promise<ActionRe
 
 export async function duplicateCalendarAction(workspaceId: string, calendarId: string): Promise<ActionResult & { id?: string }> {
   const supabase = await createClient();
+  const check = await canCreateCalendar(supabase, workspaceId);
+  if (!check.allowed) return { error: check.reason ?? "You've reached your plan's calendar limit." };
   try {
     const copy = await duplicateCalendar(supabase, workspaceId, calendarId);
     revalidatePath("/app/calendars");

@@ -9,6 +9,7 @@ import {
   completeOnboardingWorkspace,
 } from "@/services/workspace-service";
 import { upsertBrandProfile, type UpsertBrandProfileInput } from "@/services/brand-service";
+import { canCreateBrand } from "@/lib/billing/entitlements";
 
 export interface OnboardingWorkspaceInput {
   name: string;
@@ -47,6 +48,9 @@ export async function startOnboardingAction(
       });
       workspaceId = existingWorkspaceId;
     } else {
+      const brandCheck = await canCreateBrand(supabase, user.id);
+      if (!brandCheck.allowed) return { error: brandCheck.reason ?? "Your plan doesn't allow another brand right now." };
+
       const workspace = await createWorkspace(supabase, user.id, {
         name: input.name,
         industry: input.industry || null,

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspace } from "@/services/workspace-service";
 import { PageHeader } from "@/components/layout/page-header";
 import { SettingsView } from "@/components/layout/settings-view";
+import { SettingsNav } from "@/components/layout/settings-nav";
 
 export const metadata: Metadata = { title: "Settings — Constory" };
 
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
   return (
     <div className="grid gap-6">
       <PageHeader title="Settings" description="Manage your profile, workspace, and account." />
+      <SettingsNav />
       <SettingsView
         fullName={profile?.full_name ?? ""}
         email={user.email ?? ""}

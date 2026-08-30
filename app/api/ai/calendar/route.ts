@@ -8,6 +8,8 @@ import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "
 import { getCalendar, getPosts } from "@/services/calendar-service";
 import { getStrategy, getPillars } from "@/services/strategy-service";
 import { getWorkspace } from "@/services/workspace-service";
+import { canUseAI } from "@/lib/billing/entitlements";
+import { consumeAiCredits } from "@/services/billing-service";
 
 const bodySchema = z.object({
   workspaceId: z.string().uuid(),
@@ -46,6 +48,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const credits = await canUseAI(supabase, workspaceId, "generate_calendar");
+  if (!credits.allowed) {
+    return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
+  }
+
   let generationId: string | null = null;
   try {
     const strategy = await getStrategy(supabase, workspaceId);
@@ -66,6 +73,8 @@ export async function POST(request: Request) {
     });
 
     const result = await generateCalendarContent(context, calendar, pillars);
+
+    if (credits.planId) await consumeAiCredits(supabase, workspaceId, "generate_calendar", credits.cost, credits.planId);
 
     await logGenerationComplete(supabase, generationId, {
       postCount: result.postCount,
