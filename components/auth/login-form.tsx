@@ -15,6 +15,7 @@ import { FormField } from "@/components/layout/form-field";
 export function LoginForm() {
   const searchParams = useSearchParams();
   const justReset = searchParams.get("reset") === "success";
+  const redirectTo = searchParams.get("redirectTo");
   const [serverError, setServerError] = useState<string | null>(null);
 
   const {
@@ -25,7 +26,7 @@ export function LoginForm() {
 
   async function onSubmit(values: LoginInput) {
     setServerError(null);
-    const result = await loginAction(values);
+    const result = await loginAction(values, redirectTo);
     if (result?.error) {
       setServerError(result.error);
     }

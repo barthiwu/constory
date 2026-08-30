@@ -1,8 +1,27 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Workspace } from "@/types/database";
+import type { Database, Role, Workspace } from "@/types/database";
 import { getActiveWorkspaceIdCookie, setActiveWorkspaceIdCookie } from "@/lib/workspace";
 
 type DB = SupabaseClient<Database>;
+
+/**
+ * Confirms the given user actually belongs to the given workspace, and returns
+ * their role if so (null otherwise). This is an explicit, app-level authorization
+ * check — used as defense in depth alongside RLS, not a replacement for it.
+ * Callers that mutate request-scoped state outside the database (e.g. the active
+ * workspace cookie) MUST call this before doing so, since RLS only protects
+ * database rows, not that kind of state.
+ */
+export async function getWorkspaceMembership(supabase: DB, userId: string, workspaceId: string): Promise<Role | null> {
+  const { data, error } = await supabase
+    .from("workspace_members")
+    .select("role")
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) throw error;
+  return (data?.role as Role | undefined) ?? null;
+}
 
 export interface WorkspaceSummary extends Workspace {
   role: string;
@@ -74,6 +93,38 @@ export async function updateWorkspace(supabase: DB, workspaceId: string, input: 
   return data;
 }
 
-export async function switchWorkspace(workspaceId: string) {
+/** Persists which onboarding step the user should resume at for this workspace. */
+export async function setOnboardingStep(supabase: DB, workspaceId: string, step: number): Promise<void> {
+  const clamped = Math.max(0, Math.min(7, step));
+  const { error } = await supabase.from("workspaces").update({ onboarding_step: clamped }).eq("id", workspaceId);
+  if (error) throw error;
+}
+
+/** Marks onboarding as fully complete for this workspace. */
+export async function completeOnboardingWorkspace(supabase: DB, workspaceId: string): Promise<void> {
+  const { error } = await supabase
+    .from("workspaces")
+    .update({ onboarding_completed: true, onboarding_step: 7 })
+    .eq("id", workspaceId);
+  if (error) throw error;
+}
+
+/**
+ * Switches the active workspace, but only after confirming the requesting user is
+ * authenticated and is an actual member of the target workspace. This check is
+ * performed explicitly here — before the cookie is ever written — rather than
+ * relying on downstream RLS-protected queries to catch an unauthorized switch,
+ * since the active-workspace cookie itself is not something RLS can protect.
+ */
+export async function switchWorkspace(
+  supabase: DB,
+  userId: string,
+  workspaceId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const role = await getWorkspaceMembership(supabase, userId, workspaceId);
+  if (!role) {
+    return { ok: false, error: "You don't have access to that workspace." };
+  }
   await setActiveWorkspaceIdCookie(workspaceId);
+  return { ok: true };
 }

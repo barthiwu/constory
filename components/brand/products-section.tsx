@@ -37,16 +37,14 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
     setBusy(true);
     const result = await createProductAction(workspaceId, draft);
     setBusy(false);
-    if (result.error) {
+    if ("error" in result) {
       toast({ title: "Couldn't add", description: result.error, variant: "error" });
       return;
     }
+    setItems((prev) => [...prev, result.product]);
     toast({ title: "Added", variant: "success" });
     setDraft({ name: "", description: "", category: "" });
     setAdding(false);
-    // Re-fetch is unnecessary for a snappy UI — the server action revalidates the page,
-    // but we also optimistically reflect it locally with a placeholder id swapped on refresh.
-    window.location.reload();
   }
 
   function startEdit(p: ProductService) {
@@ -58,11 +56,11 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
     setBusy(true);
     const result = await updateProductAction(id, editDraft);
     setBusy(false);
-    if (result.error) {
+    if ("error" in result) {
       toast({ title: "Couldn't save", description: result.error, variant: "error" });
       return;
     }
-    setItems((prev) => prev.map((p) => (p.id === id ? { ...p, ...editDraft } : p)));
+    setItems((prev) => prev.map((p) => (p.id === id ? result.product : p)));
     setEditingId(null);
     toast({ title: "Saved", variant: "success" });
   }
@@ -73,7 +71,7 @@ export function ProductsSection({ workspaceId, products }: { workspaceId: string
     const result = await deleteProductAction(deleteTarget.id);
     setBusy(false);
     setDeleteTarget(null);
-    if (result.error) {
+    if ("error" in result) {
       toast({ title: "Couldn't remove", description: result.error, variant: "error" });
       return;
     }

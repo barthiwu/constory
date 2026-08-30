@@ -7,16 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { FormField } from "@/components/layout/form-field";
 import { GOAL_OPTIONS, VOICE_OPTIONS, PLATFORM_OPTIONS, goalLabel, platformLabel } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { createProductAction, updateProductAction, deleteProductAction } from "@/app/app/(shell)/brand/actions";
 import type { OnboardingState } from "@/components/onboarding/onboarding-wizard";
-
-export interface ProductDraft {
-  name: string;
-  description: string;
-  category: string;
-}
+import type { ProductService } from "@/types/database";
 
 interface StepProps {
   state: OnboardingState;
@@ -69,51 +66,83 @@ export function StepBusiness({ state, update, errors }: StepProps) {
   );
 }
 
-const EMPTY_PRODUCT_DRAFT: ProductDraft = { name: "", description: "", category: "" };
+const EMPTY_PRODUCT_DRAFT = { name: "", description: "", category: "" };
 
-export function StepProducts({ state, update }: StepProps) {
-  const [draft, setDraft] = useState<ProductDraft>(EMPTY_PRODUCT_DRAFT);
-  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+interface StepProductsProps {
+  workspaceId: string;
+  products: ProductService[];
+  onChange: (products: ProductService[]) => void;
+}
 
-  function saveDraft() {
-    if (!draft.name.trim()) return;
-    if (editingIndex === null) {
-      update("products", [...state.products, draft]);
-    } else {
-      update(
-        "products",
-        state.products.map((p, i) => (i === editingIndex ? draft : p)),
-      );
-      setEditingIndex(null);
-    }
-    setDraft(EMPTY_PRODUCT_DRAFT);
-  }
-
-  function startEdit(index: number) {
-    setEditingIndex(index);
-    setDraft(state.products[index]);
-  }
+/**
+ * Products persist immediately against the database (with stable, server-issued
+ * ids) as the user adds, edits, or removes them — rather than living only in
+ * local wizard state until a final batch save. This is what makes resuming
+ * onboarding, and re-saving after a resume, idempotent: there is no "replay the
+ * whole list" step that could ever recreate a product that already exists.
+ */
+export function StepProducts({ workspaceId, products, onChange }: StepProductsProps) {
+  const { toast } = useToast();
+  const [draft, setDraft] = useState(EMPTY_PRODUCT_DRAFT);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   function cancelEdit() {
-    setEditingIndex(null);
+    setEditingId(null);
     setDraft(EMPTY_PRODUCT_DRAFT);
   }
 
-  function removeProduct(index: number) {
-    update("products", state.products.filter((_, i) => i !== index));
-    if (editingIndex === index) cancelEdit();
+  async function saveDraft() {
+    if (!draft.name.trim()) return;
+    setBusy(true);
+
+    if (editingId === null) {
+      const result = await createProductAction(workspaceId, draft);
+      setBusy(false);
+      if ("error" in result) {
+        toast({ title: "Couldn't add", description: result.error, variant: "error" });
+        return;
+      }
+      onChange([...products, result.product]);
+    } else {
+      const result = await updateProductAction(editingId, draft);
+      setBusy(false);
+      if ("error" in result) {
+        toast({ title: "Couldn't save", description: result.error, variant: "error" });
+        return;
+      }
+      onChange(products.map((p) => (p.id === editingId ? result.product : p)));
+    }
+    cancelEdit();
+  }
+
+  function startEdit(product: ProductService) {
+    setEditingId(product.id);
+    setDraft({ name: product.name, description: product.description, category: product.category ?? "" });
+  }
+
+  async function removeProduct(id: string) {
+    setBusy(true);
+    const result = await deleteProductAction(id);
+    setBusy(false);
+    if ("error" in result) {
+      toast({ title: "Couldn't remove", description: result.error, variant: "error" });
+      return;
+    }
+    onChange(products.filter((p) => p.id !== id));
+    if (editingId === id) cancelEdit();
   }
 
   return (
     <div>
       <StepHeading title="Products & services" description="Add what you offer — Constory uses this to ground content in what you actually sell." />
       <div className="grid gap-3">
-        {state.products.map((p, i) => (
+        {products.map((p) => (
           <div
-            key={i}
+            key={p.id}
             className={cn(
               "flex items-start justify-between gap-3 rounded-md border bg-app-background p-3",
-              editingIndex === i ? "border-constory-blue" : "border-border",
+              editingId === p.id ? "border-constory-blue" : "border-border",
             )}
           >
             <div className="grid gap-0.5">
@@ -121,10 +150,10 @@ export function StepProducts({ state, update }: StepProps) {
               {p.description && <p className="text-sm text-text-secondary">{p.description}</p>}
             </div>
             <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="icon" onClick={() => startEdit(i)} aria-label={`Edit ${p.name}`}>
+              <Button variant="ghost" size="icon" onClick={() => startEdit(p)} aria-label={`Edit ${p.name}`} disabled={busy}>
                 <Pencil className="h-4 w-4" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => removeProduct(i)} aria-label={`Remove ${p.name}`}>
+              <Button variant="ghost" size="icon" onClick={() => removeProduct(p.id)} aria-label={`Remove ${p.name}`} disabled={busy}>
                 <Trash2 className="h-4 w-4 text-danger" />
               </Button>
             </div>
@@ -132,8 +161,10 @@ export function StepProducts({ state, update }: StepProps) {
         ))}
 
         <div className="grid gap-3 rounded-md border border-dashed border-border p-4">
-          {editingIndex !== null && (
-            <p className="text-xs font-medium text-constory-blue">Editing &ldquo;{state.products[editingIndex]?.name}&rdquo;</p>
+          {editingId !== null && (
+            <p className="text-xs font-medium text-constory-blue">
+              Editing &ldquo;{products.find((p) => p.id === editingId)?.name}&rdquo;
+            </p>
           )}
           <Input placeholder="Product or service name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <Textarea
@@ -143,8 +174,8 @@ export function StepProducts({ state, update }: StepProps) {
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           />
           <div className="flex items-center gap-2">
-            <Button type="button" variant="secondary" onClick={saveDraft} disabled={!draft.name.trim()} className="justify-self-start">
-              {editingIndex === null ? (
+            <Button type="button" variant="secondary" onClick={saveDraft} disabled={!draft.name.trim() || busy} loading={busy} className="justify-self-start">
+              {editingId === null ? (
                 <>
                   <Plus className="h-4 w-4" />
                   Add another
@@ -153,8 +184,8 @@ export function StepProducts({ state, update }: StepProps) {
                 "Save changes"
               )}
             </Button>
-            {editingIndex !== null && (
-              <Button type="button" variant="ghost" onClick={cancelEdit}>
+            {editingId !== null && (
+              <Button type="button" variant="ghost" onClick={cancelEdit} disabled={busy}>
                 <X className="h-4 w-4" />
                 Cancel
               </Button>

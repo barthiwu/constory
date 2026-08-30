@@ -14,18 +14,10 @@ import {
   brandVoiceSchema,
   platformsSchema,
 } from "@/lib/validations/brand";
-import { startOnboardingAction, completeOnboardingAction, type OnboardingCompletionInput } from "@/app/app/onboarding/actions";
-import {
-  StepWorkspace,
-  StepBusiness,
-  StepProducts,
-  StepAudience,
-  StepGoals,
-  StepVoice,
-  StepPlatforms,
-  StepReview,
-  type ProductDraft,
-} from "@/components/onboarding/steps";
+import { startOnboardingAction, saveOnboardingProgressAction, finishOnboardingAction } from "@/app/app/onboarding/actions";
+import { StepWorkspace, StepBusiness, StepProducts, StepAudience, StepGoals, StepVoice, StepPlatforms, StepReview } from "@/components/onboarding/steps";
+import type { UpsertBrandProfileInput } from "@/services/brand-service";
+import type { ProductService } from "@/types/database";
 
 const STEP_LABELS = [
   "Workspace",
@@ -43,7 +35,7 @@ export interface OnboardingState {
   industry: string;
   website: string;
   business_description: string;
-  products: ProductDraft[];
+  products: ProductService[];
   target_audience: string;
   audience_age_range: string;
   audience_locations: string;
@@ -56,7 +48,7 @@ export interface OnboardingState {
   selected_platforms: string[];
 }
 
-const INITIAL_STATE: OnboardingState = {
+export const BLANK_ONBOARDING_STATE: OnboardingState = {
   name: "",
   industry: "",
   website: "",
@@ -74,12 +66,21 @@ const INITIAL_STATE: OnboardingState = {
   selected_platforms: [],
 };
 
-export function OnboardingWizard() {
+export interface OnboardingWizardProps {
+  /** Null only for a brand-new onboarding that hasn't created a workspace yet. */
+  workspaceId: string | null;
+  /** Step to resume at, loaded from the workspace's saved onboarding progress. */
+  initialStep: number;
+  /** Existing workspace/brand-profile/products data, loaded server-side. */
+  initialState: OnboardingState;
+}
+
+export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep, initialState }: OnboardingWizardProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const [step, setStep] = useState(0);
-  const [state, setState] = useState<OnboardingState>(INITIAL_STATE);
-  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
+  const [step, setStep] = useState(initialStep);
+  const [state, setState] = useState<OnboardingState>(initialState);
+  const [workspaceId, setWorkspaceId] = useState<string | null>(initialWorkspaceId);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -90,6 +91,19 @@ export function OnboardingWizard() {
   function goBack() {
     setErrors({});
     setStep((s) => Math.max(0, s - 1));
+  }
+
+  /** Persists the current step's brand-profile fields and advances the resume point. */
+  async function persistStep(nextStep: number, patch: UpsertBrandProfileInput) {
+    if (!workspaceId) return false;
+    setIsSubmitting(true);
+    const result = await saveOnboardingProgressAction(workspaceId, nextStep, patch);
+    setIsSubmitting(false);
+    if ("error" in result) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+      return false;
+    }
+    return true;
   }
 
   async function goNext() {
@@ -112,12 +126,15 @@ export function OnboardingWizard() {
     if (step === 1) {
       const parsed = businessDescriptionSchema.safeParse({ business_description: state.business_description });
       if (!parsed.success) return setFieldErrors(parsed);
-      return setStep(2);
+      if (await persistStep(2, { business_description: parsed.data.business_description })) setStep(2);
+      return;
     }
 
     if (step === 2) {
-      // Products are optional — no hard validation, just move on.
-      return setStep(3);
+      // Products are optional and are already persisted individually as the
+      // user adds/edits/removes them — just advance the saved resume point.
+      if (await persistStep(3, {})) setStep(3);
+      return;
     }
 
     if (step === 3) {
@@ -129,26 +146,30 @@ export function OnboardingWizard() {
         audience_problems: state.audience_problems,
       });
       if (!parsed.success) return setFieldErrors(parsed);
-      return setStep(4);
+      if (await persistStep(4, parsed.data)) setStep(4);
+      return;
     }
 
     if (step === 4) {
       const parsed = goalsSchema.safeParse({ primary_goal: state.primary_goal, secondary_goals: state.secondary_goals });
       if (!parsed.success) return setFieldErrors(parsed);
-      return setStep(5);
+      if (await persistStep(5, parsed.data)) setStep(5);
+      return;
     }
 
     if (step === 5) {
       const brand_voice = [...state.brand_voice_tags, state.brand_voice_custom].filter(Boolean).join(". ");
       const parsed = brandVoiceSchema.safeParse({ brand_voice });
       if (!parsed.success) return setFieldErrors(parsed);
-      return setStep(6);
+      if (await persistStep(6, { brand_voice: parsed.data.brand_voice })) setStep(6);
+      return;
     }
 
     if (step === 6) {
       const parsed = platformsSchema.safeParse({ selected_platforms: state.selected_platforms });
       if (!parsed.success) return setFieldErrors(parsed);
-      return setStep(7);
+      if (await persistStep(7, { selected_platforms: parsed.data.selected_platforms })) setStep(7);
+      return;
     }
   }
 
@@ -163,24 +184,10 @@ export function OnboardingWizard() {
   async function handleFinish() {
     if (!workspaceId) return;
     setIsSubmitting(true);
-    const payload: OnboardingCompletionInput = {
-      business_description: state.business_description,
-      products: state.products.map((p) => ({ name: p.name, description: p.description, category: p.category })),
-      target_audience: state.target_audience,
-      audience_age_range: state.audience_age_range,
-      audience_locations: state.audience_locations,
-      audience_interests: state.audience_interests,
-      audience_problems: state.audience_problems,
-      primary_goal: state.primary_goal,
-      secondary_goals: state.secondary_goals,
-      brand_voice: [...state.brand_voice_tags, state.brand_voice_custom].filter(Boolean).join(". "),
-      selected_platforms: state.selected_platforms,
-    };
-
-    const result = await completeOnboardingAction(workspaceId, payload);
+    const result = await finishOnboardingAction(workspaceId);
     setIsSubmitting(false);
 
-    if (!result.ok) {
+    if ("error" in result) {
       toast({ title: "Couldn't finish onboarding", description: result.error, variant: "error" });
       return;
     }
@@ -208,7 +215,9 @@ export function OnboardingWizard() {
       <div className="rounded-xl border border-border bg-surface p-6 sm:p-8">
         {step === 0 && <StepWorkspace state={state} update={update} errors={errors} />}
         {step === 1 && <StepBusiness state={state} update={update} errors={errors} />}
-        {step === 2 && <StepProducts state={state} update={update} />}
+        {step === 2 && workspaceId && (
+          <StepProducts workspaceId={workspaceId} products={state.products} onChange={(products) => update("products", products)} />
+        )}
         {step === 3 && <StepAudience state={state} update={update} errors={errors} />}
         {step === 4 && <StepGoals state={state} update={update} errors={errors} />}
         {step === 5 && <StepVoice state={state} update={update} errors={errors} />}

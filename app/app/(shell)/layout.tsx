@@ -16,7 +16,9 @@ export default async function ProtectedAppLayout({ children }: { children: React
   const workspaces = await getUserWorkspaces(supabase);
   const active = await getCurrentWorkspace(supabase);
 
-  if (!active) {
+  // A workspace existing isn't enough — onboarding for it must actually be
+  // complete, otherwise send the user back to resume it where they left off.
+  if (!active || !active.onboarding_completed) {
     redirect("/app/onboarding");
   }
 

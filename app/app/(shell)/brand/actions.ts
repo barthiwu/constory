@@ -10,6 +10,7 @@ import {
   type UpsertBrandProfileInput,
   type ProductServiceInput,
 } from "@/services/brand-service";
+import type { ProductService } from "@/types/database";
 
 export interface ActionResult {
   error?: string;
@@ -30,34 +31,40 @@ export async function updateBrandSectionAction(
   }
 }
 
-export async function createProductAction(workspaceId: string, input: ProductServiceInput): Promise<ActionResult> {
+export async function createProductAction(
+  workspaceId: string,
+  input: ProductServiceInput,
+): Promise<{ product: ProductService } | { error: string }> {
   const supabase = await createClient();
   try {
-    await createProductService(supabase, workspaceId, input);
+    const product = await createProductService(supabase, workspaceId, input);
     revalidatePath("/app/brand");
-    return {};
+    return { product };
   } catch {
     return { error: "We couldn't add that product. Please try again." };
   }
 }
 
-export async function updateProductAction(id: string, input: Partial<ProductServiceInput>): Promise<ActionResult> {
+export async function updateProductAction(
+  id: string,
+  input: Partial<ProductServiceInput>,
+): Promise<{ product: ProductService } | { error: string }> {
   const supabase = await createClient();
   try {
-    await updateProductService(supabase, id, input);
+    const product = await updateProductService(supabase, id, input);
     revalidatePath("/app/brand");
-    return {};
+    return { product };
   } catch {
     return { error: "We couldn't save that product. Please try again." };
   }
 }
 
-export async function deleteProductAction(id: string): Promise<ActionResult> {
+export async function deleteProductAction(id: string): Promise<{ ok: true } | { error: string }> {
   const supabase = await createClient();
   try {
     await deleteProductService(supabase, id);
     revalidatePath("/app/brand");
-    return {};
+    return { ok: true };
   } catch {
     return { error: "We couldn't remove that product. Please try again." };
   }

@@ -15,6 +15,7 @@ import { switchWorkspaceAction } from "@/app/app/actions";
 import type { WorkspaceSummary } from "@/services/workspace-service";
 import { cn } from "@/lib/utils";
 import { CreateWorkspaceDialog } from "@/components/layout/create-workspace-dialog";
+import { useToast } from "@/components/ui/toast";
 
 export function WorkspaceSwitcher({
   workspaces,
@@ -26,6 +27,7 @@ export function WorkspaceSwitcher({
   collapsed?: boolean;
 }) {
   const router = useRouter();
+  const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
   const active = workspaces.find((w) => w.id === activeWorkspaceId) ?? workspaces[0];
@@ -33,7 +35,11 @@ export function WorkspaceSwitcher({
   function handleSwitch(id: string) {
     if (id === activeWorkspaceId) return;
     startTransition(async () => {
-      await switchWorkspaceAction(id);
+      const result = await switchWorkspaceAction(id);
+      if (!result.ok) {
+        toast({ title: "Couldn't switch workspace", description: result.error, variant: "error" });
+        return;
+      }
       router.refresh();
     });
   }

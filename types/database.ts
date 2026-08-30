@@ -33,6 +33,8 @@ export type Workspace = {
   industry: string | null;
   website: string | null;
   primary_market: string | null;
+  onboarding_step: number;
+  onboarding_completed: boolean;
   created_at: string;
   updated_at: string;
 };

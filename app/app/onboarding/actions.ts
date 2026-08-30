@@ -1,8 +1,14 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { createWorkspace, updateWorkspace } from "@/services/workspace-service";
-import { upsertBrandProfile, createProductService } from "@/services/brand-service";
+import {
+  createWorkspace,
+  updateWorkspace,
+  getWorkspaceMembership,
+  setOnboardingStep,
+  completeOnboardingWorkspace,
+} from "@/services/workspace-service";
+import { upsertBrandProfile, type UpsertBrandProfileInput } from "@/services/brand-service";
 
 export interface OnboardingWorkspaceInput {
   name: string;
@@ -10,6 +16,13 @@ export interface OnboardingWorkspaceInput {
   website?: string;
 }
 
+/**
+ * Step 0 (workspace basics). Creates a new workspace on first use, or updates
+ * the existing draft when the user is resuming. Resuming requires the caller to
+ * actually be a member of the workspace they claim to be resuming — this is an
+ * explicit app-level check, not something left to RLS alone, since a client
+ * could otherwise pass back an arbitrary workspace id.
+ */
 export async function startOnboardingAction(
   input: OnboardingWorkspaceInput,
   existingWorkspaceId?: string,
@@ -21,84 +34,83 @@ export async function startOnboardingAction(
   if (!user) return { error: "Not authenticated." };
 
   try {
+    let workspaceId: string;
+
     if (existingWorkspaceId) {
+      const role = await getWorkspaceMembership(supabase, user.id, existingWorkspaceId);
+      if (!role) return { error: "You don't have access to that workspace." };
+
       await updateWorkspace(supabase, existingWorkspaceId, {
         name: input.name,
         industry: input.industry || null,
         website: input.website || null,
       });
-      return { workspaceId: existingWorkspaceId };
+      workspaceId = existingWorkspaceId;
+    } else {
+      const workspace = await createWorkspace(supabase, user.id, {
+        name: input.name,
+        industry: input.industry || null,
+        website: input.website || null,
+      });
+      workspaceId = workspace.id;
     }
-    const workspace = await createWorkspace(supabase, user.id, {
-      name: input.name,
-      industry: input.industry || null,
-      website: input.website || null,
-    });
-    return { workspaceId: workspace.id };
+
+    await setOnboardingStep(supabase, workspaceId, 1);
+    return { workspaceId };
   } catch {
     return { error: "We couldn't save your workspace. Please try again." };
   }
 }
 
-export interface OnboardingCompletionInput {
-  business_description: string;
-  products: Array<{ name: string; description: string; category?: string }>;
-  target_audience: string;
-  audience_age_range?: string;
-  audience_locations?: string;
-  audience_interests?: string;
-  audience_problems?: string;
-  primary_goal: string;
-  secondary_goals: string[];
-  brand_voice: string;
-  selected_platforms: string[];
-}
-
-export interface OnboardingCompletionResult {
-  ok: boolean;
-  strategyGenerated: boolean;
-  error?: string;
-}
-
-export async function completeOnboardingAction(
+/**
+ * Persists one onboarding step's brand-profile fields (if any) and advances the
+ * saved resume point. Called after every step, not just at the very end, so
+ * progress survives a refresh, logout, or the browser closing mid-flow.
+ */
+export async function saveOnboardingProgressAction(
   workspaceId: string,
-  input: OnboardingCompletionInput,
-): Promise<OnboardingCompletionResult> {
+  nextStep: number,
+  patch: UpsertBrandProfileInput,
+): Promise<{ ok: true } | { error: string }> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user) return { ok: false, strategyGenerated: false, error: "Not authenticated." };
+  if (!user) return { error: "Not authenticated." };
+
+  const role = await getWorkspaceMembership(supabase, user.id, workspaceId);
+  if (!role) return { error: "You don't have access to that workspace." };
 
   try {
-    await upsertBrandProfile(supabase, workspaceId, {
-      business_description: input.business_description,
-      target_audience: input.target_audience,
-      audience_age_range: input.audience_age_range || null,
-      audience_locations: input.audience_locations || null,
-      audience_interests: input.audience_interests || null,
-      audience_problems: input.audience_problems || null,
-      brand_voice: input.brand_voice,
-      primary_goal: input.primary_goal,
-      secondary_goals: input.secondary_goals,
-      selected_platforms: input.selected_platforms,
-    });
-
-    for (const product of input.products) {
-      if (!product.name.trim()) continue;
-      await createProductService(supabase, workspaceId, {
-        name: product.name,
-        description: product.description,
-        category: product.category || null,
-      });
+    if (Object.keys(patch).length > 0) {
+      await upsertBrandProfile(supabase, workspaceId, patch);
     }
+    await setOnboardingStep(supabase, workspaceId, nextStep);
+    return { ok: true };
   } catch {
-    return { ok: false, strategyGenerated: false, error: "We couldn't save your brand information. Please try again." };
+    return { error: "We couldn't save your progress. Please try again." };
   }
+}
 
-  // Onboarding's job in this phase is only to persist the brand profile.
-  // Strategy generation is a separate, explicit action the user takes later
-  // from the Strategy page — it is never triggered automatically here, so
-  // this flow never depends on OPENAI_API_KEY being configured.
-  return { ok: true, strategyGenerated: false };
+/**
+ * Final step: marks onboarding complete. All brand-profile fields and products
+ * were already persisted incrementally by earlier steps, so there is nothing
+ * left to save here beyond flipping the completion flag.
+ */
+export async function finishOnboardingAction(workspaceId: string): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  const role = await getWorkspaceMembership(supabase, user.id, workspaceId);
+  if (!role) return { error: "You don't have access to that workspace." };
+
+  try {
+    await completeOnboardingWorkspace(supabase, workspaceId);
+    return { ok: true };
+  } catch {
+    return { error: "We couldn't finish onboarding. Please try again." };
+  }
 }

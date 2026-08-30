@@ -1,13 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/signup", "/forgot-password", "/reset-password"];
-
-function isPublicPath(pathname: string) {
-  if (pathname === "/") return true;
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
-
 /**
  * Refreshes the Supabase session on every request and redirects unauthenticated
  * users away from the protected /app area. Called from the root proxy.ts.
@@ -36,15 +29,17 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
 
   if (!user && pathname.startsWith("/app")) {
     const redirectUrl = new URL("/login", request.url);
-    redirectUrl.searchParams.set("redirectTo", pathname);
+    // Preserve the full path + query string so, after logging in, the user lands
+    // back exactly where they were trying to go (e.g. /app/calendars/abc123?tab=x).
+    redirectUrl.searchParams.set("redirectTo", pathname + search);
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && !isPublicPath(pathname) && (pathname === "/login" || pathname === "/signup")) {
+  if (user && (pathname === "/login" || pathname === "/signup")) {
     return NextResponse.redirect(new URL("/app/dashboard", request.url));
   }
 
