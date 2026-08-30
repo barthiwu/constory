@@ -43,9 +43,15 @@ export const goalsSchema = z.object({
 });
 export type GoalsInput = z.infer<typeof goalsSchema>;
 
-export const brandVoiceSchema = z.object({
-  brand_voice: z.string().trim().min(1, "Choose or describe a brand voice").max(1000),
+const brandVoiceObjectSchema = z.object({
+  brand_voice_traits: z.array(z.string()).max(8).default([]),
+  brand_voice: z.string().trim().max(1000).optional().or(z.literal("")),
 });
+
+export const brandVoiceSchema = brandVoiceObjectSchema.refine(
+  (v) => v.brand_voice_traits.length > 0 || !!v.brand_voice?.trim(),
+  { message: "Choose at least one voice trait or describe your brand voice", path: ["brand_voice"] },
+);
 export type BrandVoiceInput = z.infer<typeof brandVoiceSchema>;
 
 export const platformsSchema = z.object({
@@ -56,7 +62,7 @@ export type PlatformsInput = z.infer<typeof platformsSchema>;
 /** Full brand profile edit form on the Brand page (all sections at once). */
 export const brandProfileSchema = businessDescriptionSchema
   .merge(audienceSchema)
-  .merge(brandVoiceSchema)
+  .merge(brandVoiceObjectSchema)
   .merge(goalsSchema)
   .merge(platformsSchema);
 export type BrandProfileInput = z.infer<typeof brandProfileSchema>;

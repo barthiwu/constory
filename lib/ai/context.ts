@@ -4,7 +4,7 @@ import { getBrandProfile, getProductsServices } from "@/services/brand-service";
 import { getStrategy, getPillars } from "@/services/strategy-service";
 import { getIdeas } from "@/services/content-service";
 import { getWorkspace } from "@/services/workspace-service";
-import { goalLabel } from "@/lib/constants";
+import { goalLabel, voiceLabel } from "@/lib/constants";
 
 type DB = SupabaseClient<Database>;
 
@@ -21,6 +21,7 @@ export interface BrandContext {
   audienceProblems: string | null;
   primaryGoal: string | null;
   secondaryGoals: string[];
+  brandVoiceTraits: string[];
   brandVoice: string;
   platforms: string[];
 }
@@ -83,6 +84,7 @@ export async function buildAIContext(supabase: DB, workspaceId: string): Promise
       audienceProblems: brandProfile?.audience_problems ?? null,
       primaryGoal: brandProfile?.primary_goal ? goalLabel(brandProfile.primary_goal) : null,
       secondaryGoals: (brandProfile?.secondary_goals ?? []).map((g) => goalLabel(g)),
+      brandVoiceTraits: (brandProfile?.brand_voice_traits ?? []).map((t) => voiceLabel(t)),
       brandVoice: brandProfile?.brand_voice ?? "",
       platforms: brandProfile?.selected_platforms ?? [],
     },
@@ -117,7 +119,8 @@ export function renderBrandContextBlock(ctx: AIContext): string {
   if (brand.audienceProblems) lines.push(`Audience challenges: ${brand.audienceProblems}`);
   if (brand.primaryGoal) lines.push(`Primary business goal: ${brand.primaryGoal}`);
   if (brand.secondaryGoals.length > 0) lines.push(`Secondary goals: ${brand.secondaryGoals.join(", ")}`);
-  if (brand.brandVoice) lines.push(`Brand voice: ${brand.brandVoice}`);
+  if (brand.brandVoiceTraits.length > 0) lines.push(`Brand voice traits: ${brand.brandVoiceTraits.join(", ")}`);
+  if (brand.brandVoice) lines.push(`Brand voice description: ${brand.brandVoice}`);
   if (brand.platforms.length > 0) lines.push(`Platforms: ${brand.platforms.join(", ")}`);
 
   if (strategy.summary) {

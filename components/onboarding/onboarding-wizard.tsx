@@ -158,10 +158,13 @@ export function OnboardingWizard({ workspaceId: initialWorkspaceId, initialStep,
     }
 
     if (step === 5) {
-      const brand_voice = [...state.brand_voice_tags, state.brand_voice_custom].filter(Boolean).join(". ");
-      const parsed = brandVoiceSchema.safeParse({ brand_voice });
+      const parsed = brandVoiceSchema.safeParse({
+        brand_voice_traits: state.brand_voice_tags,
+        brand_voice: state.brand_voice_custom,
+      });
       if (!parsed.success) return setFieldErrors(parsed);
-      if (await persistStep(6, { brand_voice: parsed.data.brand_voice })) setStep(6);
+      if (await persistStep(6, { brand_voice_traits: parsed.data.brand_voice_traits, brand_voice: parsed.data.brand_voice ?? "" }))
+        setStep(6);
       return;
     }
 

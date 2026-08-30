@@ -58,6 +58,7 @@ export type BrandProfile = {
   audience_interests: string | null;
   audience_problems: string | null;
   brand_voice: string;
+  brand_voice_traits: string[];
   primary_goal: string | null;
   secondary_goals: string[];
   selected_platforms: string[];
