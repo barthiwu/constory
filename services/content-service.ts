@@ -58,6 +58,24 @@ export async function deleteIdea(supabase: DB, ideaId: string): Promise<void> {
   if (error) throw error;
 }
 
+/** Copies an idea as a fresh, manually-owned idea — never tagged as AI-sourced. */
+export async function duplicateIdea(supabase: DB, ideaId: string): Promise<ContentIdea> {
+  const { data: original, error } = await supabase.from("content_ideas").select("*").eq("id", ideaId).maybeSingle();
+  if (error) throw error;
+  if (!original) throw new Error("Idea not found");
+
+  return createIdea(
+    supabase,
+    original.workspace_id,
+    {
+      title: `${original.title} (Copy)`,
+      description: original.description,
+      content_pillar_id: original.content_pillar_id,
+    },
+    "USER",
+  );
+}
+
 /** Converts an idea into a draft calendar post and marks the idea as used. */
 export async function addIdeaToCalendar(
   supabase: DB,

@@ -1,19 +1,21 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Sparkles, CalendarDays, Lightbulb, Compass, ArrowRight, ClipboardList } from "lucide-react";
+import { Sparkles, CalendarDays, Lightbulb, Compass, ArrowRight, ClipboardList, AlertTriangle, Info } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentWorkspace } from "@/services/workspace-service";
 import { getBrandProfile } from "@/services/brand-service";
-import { getStrategy } from "@/services/strategy-service";
+import { getStrategy, getPillars } from "@/services/strategy-service";
 import { getCalendars, getPosts } from "@/services/calendar-service";
 import { getIdeas } from "@/services/content-service";
 import { getPrimaryCta } from "@/lib/dashboard";
+import { getDashboardInsights } from "@/lib/intelligence/dashboard-insights";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { EmptyState } from "@/components/layout/empty-state";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
 import { formatDate } from "@/lib/utils";
+import type { CalendarPost } from "@/types/database";
 
 export const metadata: Metadata = { title: "Dashboard — Constory" };
 
@@ -46,6 +48,15 @@ export default async function DashboardPage() {
   const upcoming = posts.filter((p) => p.scheduled_date >= today).slice(0, 5);
   const completedPosts = posts.filter((p) => p.status === "completed").length;
   const plannedPosts = posts.filter((p) => p.status === "planned").length;
+
+  // Insights should reflect the whole content plan, not just the active
+  // calendar — pull posts across every calendar in the workspace, plus the
+  // pillars behind the current strategy (if any).
+  const allPosts: CalendarPost[] = (
+    await Promise.all(calendars.map((c) => (c.id === activeCalendar?.id ? Promise.resolve(posts) : getPosts(supabase, c.id))))
+  ).flat();
+  const pillars = strategy ? await getPillars(supabase, strategy.id) : [];
+  const insights = getDashboardInsights({ posts: allPosts, ideas, strategy, pillars, today });
 
   const firstName = profile?.full_name?.split(" ")[0];
   const brandComplete = !!brandProfile && brandProfile.business_description.trim().length > 0;
@@ -210,6 +221,29 @@ export default async function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          {insights.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Insights</CardTitle>
+                <CardDescription>What&apos;s worth a look across your content plan.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <ul className="grid gap-2.5">
+                  {insights.map((insight, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-text-secondary">
+                      {insight.severity === "warning" ? (
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                      ) : (
+                        <Info className="mt-0.5 h-4 w-4 shrink-0 text-constory-blue" aria-hidden="true" />
+                      )}
+                      {insight.message}
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>

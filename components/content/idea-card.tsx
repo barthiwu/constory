@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Trash2, CalendarPlus, Sparkles, Archive, RotateCcw } from "lucide-react";
+import { Pencil, Trash2, CalendarPlus, Sparkles, Archive, RotateCcw, Copy } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ export function IdeaCard({
   onDelete,
   onAddToCalendar,
   onStatusChange,
+  onDuplicate,
 }: {
   idea: ContentIdea;
   pillar?: ContentPillar;
@@ -22,6 +23,7 @@ export function IdeaCard({
   onDelete: () => void;
   onAddToCalendar: () => void;
   onStatusChange: (status: IdeaStatus) => void;
+  onDuplicate: () => void;
 }) {
   return (
     <Card className="flex flex-col">
@@ -57,6 +59,9 @@ export function IdeaCard({
           )}
           <Button variant="ghost" size="icon" onClick={onEdit} aria-label={`Edit ${idea.title}`}>
             <Pencil className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={onDuplicate} aria-label={`Duplicate ${idea.title}`} title="Duplicate">
+            <Copy className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="icon" onClick={onDelete} aria-label={`Delete ${idea.title}`}>
             <Trash2 className="h-4 w-4 text-danger" />
