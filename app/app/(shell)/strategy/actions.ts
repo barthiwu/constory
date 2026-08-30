@@ -34,6 +34,40 @@ export async function createStrategyAction(
   }
 }
 
+/**
+ * Persists an AI-generated strategy draft once the user reviews and accepts
+ * it (see components/strategy/strategy-view.tsx). `edited` marks whether the
+ * user changed any field before saving, so we can record source: "AI_EDITED"
+ * instead of "AI" — the AI never writes to the database on its own; this
+ * action is always the one saving it, driven by an explicit user click.
+ */
+export async function saveGeneratedStrategyAction(
+  workspaceId: string,
+  draft: {
+    strategy_summary: string;
+    monthly_theme: string | null;
+    pillars: Array<{ name: string; description: string; recommended_percentage: number }>;
+  },
+  edited: boolean,
+): Promise<ActionResult & { id?: string }> {
+  const supabase = await createClient();
+  try {
+    const source = edited ? ("AI_EDITED" as const) : ("AI" as const);
+    const saved = await saveStrategy(supabase, workspaceId, {
+      strategy_summary: draft.strategy_summary,
+      monthly_theme: draft.monthly_theme,
+      content_mix: draft.pillars.map((p) => ({ pillar: p.name, percentage: p.recommended_percentage })),
+      source,
+      pillars: draft.pillars.map((p) => ({ ...p, source })),
+    });
+    revalidatePath("/app/strategy");
+    revalidatePath("/app/dashboard");
+    return { id: saved.id };
+  } catch {
+    return { error: "We couldn't save your strategy. Please try again." };
+  }
+}
+
 export async function updateStrategySummaryAction(
   strategyId: string,
   input: { strategy_summary?: string; monthly_theme?: string | null; content_mix?: ContentMixItem[] },

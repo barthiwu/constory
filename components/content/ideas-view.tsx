@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Lightbulb, Plus, Search, Sparkles } from "lucide-react";
+import { Check, Lightbulb, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
@@ -24,7 +27,7 @@ import { IDEAS_STAGES } from "@/lib/ai/stages";
 import { IdeaCard } from "@/components/content/idea-card";
 import { IdeaDialog } from "@/components/content/idea-dialog";
 import { AddToCalendarDialog } from "@/components/content/add-to-calendar-dialog";
-import { deleteIdeaAction, updateIdeaAction } from "@/app/app/(shell)/ideas/actions";
+import { deleteIdeaAction, updateIdeaAction, duplicateIdeaAction, saveGeneratedIdeasAction } from "@/app/app/(shell)/ideas/actions";
 import { filterIdeas } from "@/lib/ideas-filter";
 import type { ContentIdea, ContentPillar, ContentCalendar, IdeaStatus } from "@/types/database";
 
@@ -34,6 +37,17 @@ const STATUS_FILTERS: Array<{ value: IdeaStatus | "all"; label: string }> = [
   { value: "used", label: "Used" },
   { value: "archived", label: "Archived" },
 ];
+
+interface DraftIdea {
+  title: string;
+  description: string;
+  content_pillar_id: string | null;
+  recommended_platform: string | null;
+  recommended_format: string | null;
+  content_objective: string | null;
+  suggested_hook: string | null;
+  selected: boolean;
+}
 
 export function IdeasView({
   workspaceId,
@@ -56,6 +70,11 @@ export function IdeasView({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
   const [pillarFilter, setPillarFilter] = useState<string>("all");
+
+  // AI review-before-save state — generated ideas never touch the database
+  // until the user selects which ones to keep and clicks Save.
+  const [draftIdeas, setDraftIdeas] = useState<DraftIdea[] | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   const pillarById = new Map(pillars.map((p) => [p.id, p]));
 
@@ -83,12 +102,44 @@ export function IdeasView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "We couldn't generate ideas right now.");
-      router.refresh();
+      setDraftIdeas(
+        (data.ideas as Array<Omit<DraftIdea, "selected">>).map((i) => ({ ...i, selected: true })),
+      );
     } catch (err) {
       setGenerationError(err instanceof Error ? err.message : "We couldn't generate ideas right now.");
     } finally {
       setGenerating(false);
     }
+  }
+
+  function updateDraftIdea(index: number, patch: Partial<DraftIdea>) {
+    setDraftIdeas((prev) => (prev ? prev.map((d, i) => (i === index ? { ...d, ...patch } : d)) : prev));
+  }
+
+  function discardDraftIdea(index: number) {
+    setDraftIdeas((prev) => (prev ? prev.filter((_, i) => i !== index) : prev));
+  }
+
+  async function handleSaveDraftIdeas() {
+    if (!draftIdeas) return;
+    const selected = draftIdeas.filter((d) => d.selected);
+    if (selected.length === 0) {
+      toast({ title: "Select at least one idea to save", variant: "error" });
+      return;
+    }
+    setSavingDraft(true);
+    const result = await saveGeneratedIdeasAction(
+      workspaceId,
+      selected.map((d) => ({ title: d.title, description: d.description, content_pillar_id: d.content_pillar_id })),
+    );
+    setSavingDraft(false);
+    if (result.error) {
+      toast({ title: "Couldn't save ideas", description: result.error, variant: "error" });
+      return;
+    }
+    toast({ title: `Saved ${result.count} idea${result.count === 1 ? "" : "s"}`, variant: "success" });
+    setDraftIdeas(null);
+    router.refresh();
   }
 
   async function handleDelete() {
@@ -98,6 +149,14 @@ export function IdeasView({
     if (result.error) toast({ title: "Couldn't remove", description: result.error, variant: "error" });
     else router.refresh();
   }
+
+  async function handleDuplicate(idea: ContentIdea) {
+    const result = await duplicateIdeaAction(idea.id);
+    if (result.error) toast({ title: "Couldn't duplicate", description: result.error, variant: "error" });
+    else router.refresh();
+  }
+
+  const selectedCount = draftIdeas?.filter((d) => d.selected).length ?? 0;
 
   return (
     <div className="grid gap-6">
@@ -114,7 +173,70 @@ export function IdeasView({
 
       {generationError && <ErrorState message={generationError} onRetry={handleGenerate} />}
 
-      {ideas.length === 0 ? (
+      {draftIdeas ? (
+        <div className="grid gap-4">
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <Sparkles className="h-4 w-4 text-constory-blue" aria-hidden="true" />
+            Review your generated ideas — nothing is saved yet. Uncheck any you don&apos;t want, edit freely, then save the rest.
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {draftIdeas.map((d, i) => (
+              <Card key={i} className={d.selected ? "" : "opacity-60"}>
+                <CardContent className="grid gap-2 pt-6">
+                  <div className="flex items-start justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateDraftIdea(i, { selected: !d.selected })}
+                      aria-pressed={d.selected}
+                      aria-label={d.selected ? "Deselect this idea" : "Select this idea"}
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded border ${d.selected ? "border-constory-blue bg-constory-blue text-white" : "border-border"}`}
+                    >
+                      {d.selected && <Check className="h-3.5 w-3.5" />}
+                    </button>
+                    <Button variant="ghost" size="icon" onClick={() => discardDraftIdea(i)} aria-label="Discard this idea">
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <Input value={d.title} onChange={(e) => updateDraftIdea(i, { title: e.target.value })} className="font-medium" />
+                  <Textarea rows={3} value={d.description} onChange={(e) => updateDraftIdea(i, { description: e.target.value })} />
+                  <Select value={d.content_pillar_id ?? "none"} onValueChange={(v) => updateDraftIdea(i, { content_pillar_id: v === "none" ? null : v })}>
+                    <SelectTrigger aria-label="Pillar">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No pillar</SelectItem>
+                      {pillars.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <div className="flex flex-wrap gap-1.5">
+                    {d.recommended_platform && <Badge variant="outline">{d.recommended_platform}</Badge>}
+                    {d.recommended_format && <Badge variant="outline">{d.recommended_format}</Badge>}
+                    {d.content_objective && <Badge variant="outline">{d.content_objective}</Badge>}
+                  </div>
+                  {d.suggested_hook && <p className="text-xs italic text-text-muted">Suggested hook: &ldquo;{d.suggested_hook}&rdquo;</p>}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          {draftIdeas.length === 0 && <p className="text-sm text-text-secondary">All ideas discarded. Regenerate for a fresh batch.</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+            <Button variant="ghost" onClick={() => setDraftIdeas(null)} disabled={savingDraft}>
+              Discard All
+            </Button>
+            <Button variant="secondary" onClick={handleGenerate} loading={generating} disabled={savingDraft}>
+              <RefreshCw className="h-4 w-4" />
+              Regenerate
+            </Button>
+            <Button onClick={handleSaveDraftIdeas} loading={savingDraft} disabled={draftIdeas.length === 0}>
+              Save {selectedCount > 0 ? `${selectedCount} Selected` : "Selected"}
+            </Button>
+          </div>
+        </div>
+      ) : ideas.length === 0 ? (
         <EmptyState
           icon={Lightbulb}
           title="No Content Ideas Yet"
@@ -198,6 +320,7 @@ export function IdeasView({
                   onDelete={() => setDeleteTarget(idea)}
                   onAddToCalendar={() => setCalendarIdea(idea)}
                   onStatusChange={(status) => handleStatusChange(idea, status)}
+                  onDuplicate={() => handleDuplicate(idea)}
                 />
               ))}
             </div>

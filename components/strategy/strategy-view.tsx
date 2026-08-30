@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Compass, Plus, RefreshCw, Sparkles } from "lucide-react";
+import { Compass, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,9 +14,22 @@ import { GenerationOverlay } from "@/components/ai/generation-overlay";
 import { STRATEGY_STAGES } from "@/lib/ai/stages";
 import { PillarCard } from "@/components/strategy/pillar-card";
 import { ContentMixBar } from "@/components/strategy/content-mix-bar";
-import { createStrategyAction, updateStrategySummaryAction, createPillarAction } from "@/app/app/(shell)/strategy/actions";
+import { createStrategyAction, saveGeneratedStrategyAction, updateStrategySummaryAction, createPillarAction } from "@/app/app/(shell)/strategy/actions";
 import { formatDateTime } from "@/lib/utils";
 import type { ContentStrategy, ContentPillar } from "@/types/database";
+
+interface DraftPillar {
+  name: string;
+  description: string;
+  recommended_percentage: number;
+}
+
+interface StrategyDraft {
+  strategy_summary: string;
+  monthly_theme: string | null;
+  pillars: DraftPillar[];
+  strategic_recommendations: string[];
+}
 
 export function StrategyView({
   workspaceId,
@@ -40,6 +53,12 @@ export function StrategyView({
   const [manualDraft, setManualDraft] = useState({ strategy_summary: "", monthly_theme: "" });
   const [creatingSummary, setCreatingSummary] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // AI review-before-save state — a generated strategy never touches the
+  // database until the user explicitly accepts it here.
+  const [draft, setDraft] = useState<StrategyDraft | null>(null);
+  const [draftEdited, setDraftEdited] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
 
   async function handleCreateManually() {
     if (!manualDraft.strategy_summary.trim()) {
@@ -73,12 +92,50 @@ export function StrategyView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "We couldn't generate your strategy right now.");
-      router.refresh();
+      setDraft(data.draft);
+      setDraftEdited(false);
     } catch (err) {
       setGenerationError(err instanceof Error ? err.message : "We couldn't generate your strategy right now.");
     } finally {
       setGenerating(false);
     }
+  }
+
+  function updateDraft<K extends keyof StrategyDraft>(key: K, value: StrategyDraft[K]) {
+    setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
+    setDraftEdited(true);
+  }
+
+  function updateDraftPillar(index: number, patch: Partial<DraftPillar>) {
+    setDraft((prev) => (prev ? { ...prev, pillars: prev.pillars.map((p, i) => (i === index ? { ...p, ...patch } : p)) } : prev));
+    setDraftEdited(true);
+  }
+
+  function removeDraftPillar(index: number) {
+    setDraft((prev) => (prev ? { ...prev, pillars: prev.pillars.filter((_, i) => i !== index) } : prev));
+    setDraftEdited(true);
+  }
+
+  async function handleSaveDraft() {
+    if (!draft) return;
+    if (draft.pillars.length === 0) {
+      toast({ title: "Add at least one content pillar before saving", variant: "error" });
+      return;
+    }
+    setSavingDraft(true);
+    const result = await saveGeneratedStrategyAction(
+      workspaceId,
+      { strategy_summary: draft.strategy_summary, monthly_theme: draft.monthly_theme, pillars: draft.pillars },
+      draftEdited,
+    );
+    setSavingDraft(false);
+    if (result.error) {
+      toast({ title: "Couldn't save", description: result.error, variant: "error" });
+      return;
+    }
+    toast({ title: "Strategy saved", variant: "success" });
+    setDraft(null);
+    router.refresh();
   }
 
   async function handleSaveSummary() {
@@ -103,6 +160,109 @@ export function StrategyView({
   }
 
   const totalPercentage = pillars.reduce((sum, p) => sum + p.recommended_percentage, 0);
+
+  // --- AI-generated draft under review — takes over the whole panel until
+  // the user saves or discards it, whether or not a strategy already exists.
+  if (draft) {
+    const draftTotal = draft.pillars.reduce((sum, p) => sum + p.recommended_percentage, 0);
+    return (
+      <div className="grid gap-6">
+        <Card className="border-constory-blue/40">
+          <CardHeader className="flex-row items-start justify-between space-y-0">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-constory-blue" aria-hidden="true" />
+                <CardTitle>Review your generated strategy</CardTitle>
+              </div>
+              <CardDescription>Nothing is saved yet — edit anything below, then accept or regenerate.</CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-text-primary" htmlFor="draft-summary">
+                Strategy summary
+              </label>
+              <Textarea id="draft-summary" rows={4} value={draft.strategy_summary} onChange={(e) => updateDraft("strategy_summary", e.target.value)} />
+            </div>
+            <div className="grid gap-1.5">
+              <label className="text-sm font-medium text-text-primary" htmlFor="draft-theme">
+                Monthly theme <span className="font-normal text-text-muted">(optional)</span>
+              </label>
+              <Input id="draft-theme" value={draft.monthly_theme ?? ""} onChange={(e) => updateDraft("monthly_theme", e.target.value || null)} />
+            </div>
+            {draft.strategic_recommendations.length > 0 && (
+              <div className="grid gap-1.5">
+                <p className="text-sm font-medium text-text-primary">Recommendations</p>
+                <ul className="grid gap-1 text-sm text-text-secondary">
+                  {draft.strategic_recommendations.map((r, i) => (
+                    <li key={i} className="flex gap-2">
+                      <span aria-hidden="true">•</span>
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Content pillars</CardTitle>
+            <CardDescription>{draftTotal === 100 ? "Pillars add up to 100%." : `Pillars currently total ${draftTotal}%.`}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {draft.pillars.map((p, i) => (
+              <div key={i} className="grid gap-2 rounded-lg border border-border p-3">
+                <div className="flex items-start justify-between gap-2">
+                  <Input value={p.name} onChange={(e) => updateDraftPillar(i, { name: e.target.value })} className="font-medium" />
+                  <Button variant="ghost" size="icon" onClick={() => removeDraftPillar(i)} aria-label={`Remove ${p.name}`}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <Textarea rows={2} value={p.description} onChange={(e) => updateDraftPillar(i, { description: e.target.value })} />
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    className="w-24"
+                    value={p.recommended_percentage}
+                    onChange={(e) => updateDraftPillar(i, { recommended_percentage: Number(e.target.value) })}
+                  />
+                  <span className="text-sm text-text-secondary">% of content</span>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        {generationError && <ErrorState message={generationError} onRetry={handleGenerate} />}
+
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setDraft(null);
+              setGenerationError(null);
+            }}
+            disabled={savingDraft}
+          >
+            Discard
+          </Button>
+          <Button variant="secondary" onClick={handleGenerate} loading={generating} disabled={savingDraft}>
+            <RefreshCw className="h-4 w-4" />
+            Regenerate
+          </Button>
+          <Button onClick={handleSaveDraft} loading={savingDraft}>
+            Save Strategy
+          </Button>
+        </div>
+
+        <GenerationOverlay active={generating} stages={STRATEGY_STAGES} title="Rebuilding your strategy" />
+      </div>
+    );
+  }
 
   if (!strategy) {
     if (creatingManually) {
@@ -155,7 +315,7 @@ export function StrategyView({
         <EmptyState
           icon={Compass}
           title="You haven't built your content strategy yet"
-          description="Your strategy provides the foundation for your content ideas and calendar. Write it yourself, or let Constory generate a starting point."
+          description="Your strategy provides the foundation for your content ideas and calendar. Write it yourself, or let Constory generate a starting point to review and edit."
           action={
             <div className="grid justify-items-center gap-2">
               <div className="flex flex-wrap justify-center gap-2">
@@ -184,8 +344,8 @@ export function StrategyView({
             <CardDescription>Last updated {formatDateTime(strategy.updated_at)}</CardDescription>
           </div>
           <Button variant="secondary" size="sm" onClick={handleGenerate} loading={generating}>
-            <RefreshCw className="h-4 w-4" />
-            Regenerate
+            <Sparkles className="h-4 w-4" />
+            Regenerate with AI
           </Button>
         </CardHeader>
         <CardContent className="grid gap-4">

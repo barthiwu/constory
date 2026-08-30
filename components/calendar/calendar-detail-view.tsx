@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CalendarDays, MoreHorizontal, Plus, Sparkles, Trash2, Copy } from "lucide-react";
+import { CalendarDays, MoreHorizontal, Plus, RefreshCw, Sparkles, Trash2, Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
@@ -33,11 +36,20 @@ import { ListView } from "@/components/calendar/list-view";
 import { ExportButton } from "@/components/calendar/export-button";
 import { PostDetailDialog } from "@/components/content/post-detail-dialog";
 import { CreatePostDialog } from "@/components/content/create-post-dialog";
-import { deleteCalendarAction, duplicateCalendarAction } from "@/app/app/(shell)/calendars/actions";
+import { deleteCalendarAction, duplicateCalendarAction, saveGeneratedCalendarAction } from "@/app/app/(shell)/calendars/actions";
+import { PLATFORM_OPTIONS, CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 import { formatDate } from "@/lib/utils";
 import type { CalendarPost, ContentCalendar, ContentPillar } from "@/types/database";
+import type { CreatePostInput } from "@/services/calendar-service";
 
 type ViewMode = "month" | "week" | "list";
+type DraftPost = CreatePostInput & { _draftKey: string };
+
+function toCreatePostInput(post: DraftPost): CreatePostInput {
+  const input: CreatePostInput & { _draftKey?: string } = { ...post };
+  delete input._draftKey;
+  return input;
+}
 
 export function CalendarDetailView({
   workspaceId,
@@ -68,6 +80,11 @@ export function CalendarDetailView({
   const [createOpen, setCreateOpen] = useState(false);
   const [confirmDeleteCalendar, setConfirmDeleteCalendar] = useState(false);
 
+  // AI review-before-save state — a generated calendar's posts never touch
+  // the database until the user accepts them here.
+  const [draftPosts, setDraftPosts] = useState<DraftPost[] | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+
   function closePostDialog() {
     setSelectedPost(null);
     if (initialPostId) router.replace(`/app/calendars/${calendar.id}`, { scroll: false });
@@ -92,8 +109,7 @@ export function CalendarDetailView({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "We couldn't generate your calendar right now. Your existing information is safe.");
-      toast({ title: `Generated ${data.postCount} posts`, variant: "success" });
-      router.refresh();
+      setDraftPosts(data.posts);
     } catch (err) {
       setGenerationError(err instanceof Error ? err.message : "We couldn't generate your calendar right now.");
     } finally {
@@ -110,6 +126,28 @@ export function CalendarDetailView({
     if (autoGenerate) void handleGenerate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerate]);
+
+  function updateDraftPost(key: string, patch: Partial<DraftPost>) {
+    setDraftPosts((prev) => (prev ? prev.map((p) => (p._draftKey === key ? { ...p, ...patch } : p)) : prev));
+  }
+
+  function removeDraftPost(key: string) {
+    setDraftPosts((prev) => (prev ? prev.filter((p) => p._draftKey !== key) : prev));
+  }
+
+  async function handleSaveDraftPosts() {
+    if (!draftPosts || draftPosts.length === 0) return;
+    setSavingDraft(true);
+    const result = await saveGeneratedCalendarAction(calendar.id, draftPosts.map(toCreatePostInput));
+    setSavingDraft(false);
+    if (result.error) {
+      toast({ title: "Couldn't save calendar", description: result.error, variant: "error" });
+      return;
+    }
+    toast({ title: `Saved ${result.count} posts`, variant: "success" });
+    setDraftPosts(null);
+    router.refresh();
+  }
 
   async function handleDuplicateCalendar() {
     const result = await duplicateCalendarAction(workspaceId, calendar.id);
@@ -148,46 +186,129 @@ export function CalendarDetailView({
             {formatDate(calendar.start_date)} – {formatDate(calendar.end_date)} · {posts.length} posts
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {posts.length > 0 && (
-            <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)}>
-              <TabsList>
-                <TabsTrigger value="month">Month</TabsTrigger>
-                <TabsTrigger value="week">Week</TabsTrigger>
-                <TabsTrigger value="list">List</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          )}
-          <ExportButton calendar={calendar} posts={posts} pillars={pillars} />
-          {posts.length > 0 && (
-            <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              Add Content
-            </Button>
-          )}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label="More actions">
-                <MoreHorizontal className="h-4 w-4" />
+        {!draftPosts && (
+          <div className="flex flex-wrap items-center gap-2">
+            {posts.length > 0 && (
+              <Tabs value={view} onValueChange={(v) => setView(v as ViewMode)}>
+                <TabsList>
+                  <TabsTrigger value="month">Month</TabsTrigger>
+                  <TabsTrigger value="week">Week</TabsTrigger>
+                  <TabsTrigger value="list">List</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
+            <ExportButton calendar={calendar} posts={posts} pillars={pillars} />
+            {posts.length > 0 && (
+              <Button size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                Add Content
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={handleDuplicateCalendar}>
-                <Copy className="h-4 w-4" />
-                Duplicate calendar
-              </DropdownMenuItem>
-              <DropdownMenuItem onSelect={() => setConfirmDeleteCalendar(true)} destructive>
-                <Trash2 className="h-4 w-4" />
-                Delete calendar
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label="More actions">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={handleDuplicateCalendar}>
+                  <Copy className="h-4 w-4" />
+                  Duplicate calendar
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setConfirmDeleteCalendar(true)} destructive>
+                  <Trash2 className="h-4 w-4" />
+                  Delete calendar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+        )}
       </div>
 
       {generationError && <ErrorState message={generationError} onRetry={handleGenerate} />}
 
-      {posts.length === 0 ? (
+      {draftPosts ? (
+        <div className="grid gap-4">
+          <div className="flex items-center gap-2 text-sm text-text-secondary">
+            <Sparkles className="h-4 w-4 text-constory-blue" aria-hidden="true" />
+            Review your generated calendar — nothing is saved yet. Edit or remove posts, then save the plan.
+          </div>
+          <div className="grid gap-3">
+            {draftPosts
+              .slice()
+              .sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date))
+              .map((p) => (
+                <Card key={p._draftKey}>
+                  <CardContent className="grid gap-3 pt-6 sm:grid-cols-[auto_1fr_auto] sm:items-start">
+                    <div className="text-sm font-medium text-text-secondary sm:pt-2">{formatDate(p.scheduled_date)}</div>
+                    <div className="grid gap-2">
+                      <Input value={p.title} onChange={(e) => updateDraftPost(p._draftKey, { title: e.target.value })} className="font-medium" />
+                      <div className="flex flex-wrap gap-2">
+                        <Select value={p.platform} onValueChange={(v) => updateDraftPost(p._draftKey, { platform: v })}>
+                          <SelectTrigger className="w-36" aria-label="Platform">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {PLATFORM_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select
+                          value={p.content_pillar_id ?? "none"}
+                          onValueChange={(v) => updateDraftPost(p._draftKey, { content_pillar_id: v === "none" ? null : v })}
+                        >
+                          <SelectTrigger className="w-40" aria-label="Pillar">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">No pillar</SelectItem>
+                            {pillars.map((pillar) => (
+                              <SelectItem key={pillar.id} value={pillar.id}>
+                                {pillar.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Select value={p.format ?? ""} onValueChange={(v) => updateDraftPost(p._draftKey, { format: v })}>
+                          <SelectTrigger className="w-40" aria-label="Format">
+                            <SelectValue placeholder="Format" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONTENT_FORMAT_OPTIONS.map((f) => (
+                              <SelectItem key={f} value={f}>
+                                {f}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {p.brief && <p className="text-xs text-text-muted">{p.brief}</p>}
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={() => removeDraftPost(p._draftKey)} aria-label={`Remove ${p.title}`}>
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+          </div>
+          {draftPosts.length === 0 && <p className="text-sm text-text-secondary">All posts removed. Regenerate for a fresh plan.</p>}
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+            <Button variant="ghost" onClick={() => setDraftPosts(null)} disabled={savingDraft}>
+              Discard
+            </Button>
+            <Button variant="secondary" onClick={handleGenerate} loading={generating} disabled={savingDraft}>
+              <RefreshCw className="h-4 w-4" />
+              Regenerate
+            </Button>
+            <Button onClick={handleSaveDraftPosts} loading={savingDraft} disabled={draftPosts.length === 0}>
+              Save Calendar ({draftPosts.length} posts)
+            </Button>
+          </div>
+        </div>
+      ) : posts.length === 0 ? (
         <EmptyState
           icon={CalendarDays}
           title="This calendar doesn't have any content yet"

@@ -24,6 +24,10 @@ export const aiIdeaSchema = z.object({
   title: z.string().min(1).max(160),
   description: z.string().min(1).max(600),
   pillar_name: z.string().max(80).nullable(),
+  recommended_platform: z.string().max(40).nullable(),
+  recommended_format: z.string().max(80).nullable(),
+  content_objective: z.string().max(120).nullable(),
+  suggested_hook: z.string().max(300).nullable(),
 });
 
 export const aiIdeasSchema = z.object({

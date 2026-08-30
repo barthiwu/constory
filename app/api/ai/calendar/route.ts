@@ -5,7 +5,7 @@ import { buildAIContext } from "@/lib/ai/context";
 import { generateCalendarContent } from "@/lib/ai/generate-calendar";
 import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
-import { getCalendar, bulkCreatePosts, getPosts } from "@/services/calendar-service";
+import { getCalendar, getPosts } from "@/services/calendar-service";
 import { getStrategy, getPillars } from "@/services/strategy-service";
 import { getWorkspace } from "@/services/workspace-service";
 
@@ -14,6 +14,13 @@ const bodySchema = z.object({
   calendarId: z.string().uuid(),
 });
 
+/**
+ * Generates a calendar's worth of draft posts only — nothing is persisted
+ * here. The client shows the full draft for review (edit individual posts,
+ * remove some, discard, regenerate) and a separate save action
+ * (saveGeneratedCalendarAction in app/app/(shell)/calendars/actions.ts)
+ * commits the accepted posts.
+ */
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -60,14 +67,18 @@ export async function POST(request: Request) {
 
     const result = await generateCalendarContent(context, calendar, pillars);
 
-    const created = await bulkCreatePosts(supabase, calendarId, result.posts);
-
     await logGenerationComplete(supabase, generationId, {
-      postCount: created.length,
+      postCount: result.postCount,
       distribution: result.distribution,
+      saved: false,
     });
 
-    return NextResponse.json({ postCount: created.length, distribution: result.distribution });
+    // Draft posts don't have ids yet (nothing is persisted) — attach a
+    // client-usable temporary key so the review UI can track/edit/remove
+    // individual rows before save.
+    const draft = result.posts.map((p, i) => ({ ...p, _draftKey: `${Date.now()}-${i}` }));
+
+    return NextResponse.json({ posts: draft, distribution: result.distribution });
   } catch (err) {
     if (generationId) {
       await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});

@@ -5,7 +5,7 @@ import { buildAIContext } from "@/lib/ai/context";
 import { regenerateTopic, regenerateCaption, generateAlternativeAngle, improveField, regenerateField } from "@/lib/ai/regenerate";
 import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
-import { getPost, updatePost, getCalendar } from "@/services/calendar-service";
+import { getPost, getCalendar } from "@/services/calendar-service";
 import type { CreatePostInput } from "@/services/calendar-service";
 
 const bodySchema = z.discriminatedUnion("action", [
@@ -33,6 +33,16 @@ const bodySchema = z.discriminatedUnion("action", [
   }),
 ]);
 
+/**
+ * Generates replacement field values for an existing post — this does NOT
+ * write to the database. It returns a partial field patch that the client
+ * merges into its local (unsaved) editing state; the post's existing
+ * "Save" button (updatePostAction) is what actually persists it, exactly
+ * like any other manual edit. This keeps AI regeneration subject to the
+ * same review-before-save discipline as generation everywhere else, and
+ * means a regenerate the user doesn't like is discarded for free by simply
+ * not saving / navigating away.
+ */
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -58,35 +68,34 @@ export async function POST(request: Request) {
       action: body.action,
     });
 
-    let update: Partial<CreatePostInput> = {};
+    let fields: Partial<CreatePostInput> = {};
     let output: Record<string, unknown> = {};
 
     if (body.action === "topic") {
       const result = await regenerateTopic(context, post);
-      update = { title: result.title, brief: result.brief, hook: result.hook };
+      fields = { title: result.title, brief: result.brief, hook: result.hook };
       output = result;
     } else if (body.action === "alternative_angle") {
       const result = await generateAlternativeAngle(context, post);
-      update = { title: result.title, brief: result.brief, hook: result.hook };
+      fields = { title: result.title, brief: result.brief, hook: result.hook };
       output = result;
     } else if (body.action === "caption") {
       const result = await regenerateCaption(context, post);
-      update = { caption: result.caption, cta: result.cta, hashtags: result.hashtags };
+      fields = { caption: result.caption, cta: result.cta, hashtags: result.hashtags };
       output = result;
     } else if (body.action === "improve") {
       const value = await improveField(context, post, body.field, body.option);
-      update = { [body.field]: value } as Partial<CreatePostInput>;
+      fields = { [body.field]: value } as Partial<CreatePostInput>;
       output = { field: body.field, option: body.option };
     } else if (body.action === "field") {
       const value = await regenerateField(context, post, body.field);
-      update = { [body.field]: value } as Partial<CreatePostInput>;
+      fields = { [body.field]: value } as Partial<CreatePostInput>;
       output = { field: body.field };
     }
 
-    const updated = await updatePost(supabase, post.id, update);
-    await logGenerationComplete(supabase, generationId, output);
+    await logGenerationComplete(supabase, generationId, { ...output, saved: false });
 
-    return NextResponse.json({ post: updated });
+    return NextResponse.json({ fields });
   } catch (err) {
     if (generationId) {
       await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});

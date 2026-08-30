@@ -5,11 +5,16 @@ import { buildAIContext } from "@/lib/ai/context";
 import { generateStrategy } from "@/lib/ai/generate-strategy";
 import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
-import { saveStrategy } from "@/services/strategy-service";
 import { getWorkspace } from "@/services/workspace-service";
 
 const bodySchema = z.object({ workspaceId: z.string().uuid() });
 
+/**
+ * Generates a strategy draft only — nothing is persisted here. The client
+ * shows the draft for review (edit pillars, discard, regenerate) and a
+ * separate save action (createGeneratedStrategyAction in
+ * app/app/(shell)/strategy/actions.ts) commits it once the user accepts.
+ */
 export async function POST(request: Request) {
   const supabase = await createClient();
   const {
@@ -33,22 +38,12 @@ export async function POST(request: Request) {
 
     const { strategy } = await generateStrategy(context);
 
-    const saved = await saveStrategy(supabase, workspaceId, {
-      strategy_summary: strategy.strategy_summary,
-      monthly_theme: strategy.monthly_theme,
-      content_mix: strategy.pillars.map((p) => ({ pillar: p.name, percentage: p.recommended_percentage })),
-      source: "AI",
-      pillars: strategy.pillars.map((p) => ({
-        name: p.name,
-        description: p.description,
-        recommended_percentage: p.recommended_percentage,
-        source: "AI" as const,
-      })),
+    await logGenerationComplete(supabase, generationId, {
+      pillarCount: strategy.pillars.length,
+      saved: false,
     });
 
-    await logGenerationComplete(supabase, generationId, { strategyId: saved.id, pillarCount: strategy.pillars.length });
-
-    return NextResponse.json({ strategyId: saved.id });
+    return NextResponse.json({ draft: strategy });
   } catch (err) {
     if (generationId) {
       await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});

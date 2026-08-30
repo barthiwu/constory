@@ -14,11 +14,18 @@ Rules:
   different angles or subjects.
 - Each idea needs a short, specific title and a 1-3 sentence description of the angle and why it fits the
   audience.
+- For every idea also suggest: a recommended_platform (one of the brand's selected platforms if any are given,
+  otherwise your best judgment), a recommended_format appropriate to that platform, a short content_objective
+  (e.g. "Educate", "Engage", "Promote", "Generate leads", "Build authority"), and an optional suggested_hook — a
+  one-line opening/angle that would stop the scroll. Use null for any of these you genuinely can't recommend.
 - Respond only with the structured output requested.`;
 
 export interface GenerateIdeasParams {
   count: number;
   focusPillarName?: string;
+  platform?: string;
+  objective?: string;
+  format?: string;
 }
 
 export async function generateIdeas(ctx: AIContext, params: GenerateIdeasParams): Promise<AIIdeasOutput> {
@@ -31,6 +38,9 @@ export async function generateIdeas(ctx: AIContext, params: GenerateIdeasParams)
       : "";
 
   const focusLine = params.focusPillarName ? `\n\nFocus specifically on the "${params.focusPillarName}" pillar.` : "";
+  const platformLine = params.platform ? `\n\nFocus recommended_platform on "${params.platform}" for every idea.` : "";
+  const objectiveLine = params.objective ? `\n\nEvery idea should serve this content objective: "${params.objective}".` : "";
+  const formatLine = params.format ? `\n\nFocus recommended_format on "${params.format}" for every idea.` : "";
 
   try {
     const completion = await client.chat.completions.parse({
@@ -39,7 +49,7 @@ export async function generateIdeas(ctx: AIContext, params: GenerateIdeasParams)
         { role: "system", content: SYSTEM_PROMPT },
         {
           role: "user",
-          content: `${contextBlock}${existingBlock}${focusLine}\n\nGenerate ${params.count} new content ideas now.`,
+          content: `${contextBlock}${existingBlock}${focusLine}${platformLine}${objectiveLine}${formatLine}\n\nGenerate ${params.count} new content ideas now.`,
         },
       ],
       response_format: zodResponseFormat(aiIdeasSchema, "content_ideas"),

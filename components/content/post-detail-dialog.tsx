@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FormField } from "@/components/layout/form-field";
 import { ErrorState } from "@/components/layout/error-state";
+import { QualitySignals } from "@/components/content/quality-signals";
 import { useToast } from "@/components/ui/toast";
 import {
   AlertDialog,
@@ -60,6 +61,7 @@ export function PostDetailDialog({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [dirty, setDirty] = useState(false);
 
   // Re-sync local editable state whenever the `post` prop changes (e.g. a
   // different post is opened) — adjusted during render rather than in an
@@ -68,15 +70,26 @@ export function PostDetailDialog({
     setPrevPost(post);
     setLocal(post);
     setError(null);
+    setDirty(false);
   }
 
   if (!local) return null;
 
   function update<K extends keyof CalendarPost>(key: K, value: CalendarPost[K]) {
     setLocal((prev) => (prev ? { ...prev, [key]: value } : prev));
+    setDirty(true);
   }
 
-  async function callAI(body: Record<string, unknown>): Promise<CalendarPost | null> {
+  /**
+   * Calls the AI regeneration endpoint, which only returns generated field
+   * values — nothing is persisted server-side. The result is merged into
+   * local (unsaved) editing state, exactly like a manual edit, so the
+   * existing Save button below is what actually commits it. This keeps
+   * every AI action here subject to the same review-before-save discipline
+   * as strategy/ideas/calendar generation: a regenerated field the user
+   * doesn't like is discarded for free by not saving.
+   */
+  async function callAI(body: Record<string, unknown>): Promise<Partial<CalendarPost> | null> {
     setError(null);
     try {
       const res = await fetch("/api/ai/post", {
@@ -86,7 +99,7 @@ export function PostDetailDialog({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "We couldn't regenerate this right now.");
-      return data.post as CalendarPost;
+      return data.fields as Partial<CalendarPost>;
     } catch (err) {
       setError(err instanceof Error ? err.message : "We couldn't regenerate this right now.");
       return null;
@@ -96,36 +109,36 @@ export function PostDetailDialog({
   async function handleRegen(action: RegenAction) {
     if (!local) return;
     setBusyAction(action);
-    const updated = await callAI({ action, postId: local.id });
+    const fields = await callAI({ action, postId: local.id });
     setBusyAction(null);
-    if (updated) {
-      setLocal(updated);
-      router.refresh();
-      toast({ title: "Regenerated", variant: "success" });
+    if (fields) {
+      setLocal((prev) => (prev ? { ...prev, ...fields } : prev));
+      setDirty(true);
+      toast({ title: "Applied — click Save to keep these changes", variant: "success" });
     }
   }
 
   async function handleImprove(field: "caption" | "hook" | "cta" | "creative_direction", option: ImproveOption) {
     if (!local) return;
     setBusyAction(`improve-${field}`);
-    const updated = await callAI({ action: "improve", postId: local.id, field, option });
+    const fields = await callAI({ action: "improve", postId: local.id, field, option });
     setBusyAction(null);
-    if (updated) {
-      setLocal(updated);
-      router.refresh();
-      toast({ title: "Updated", variant: "success" });
+    if (fields) {
+      setLocal((prev) => (prev ? { ...prev, ...fields } : prev));
+      setDirty(true);
+      toast({ title: "Applied — click Save to keep these changes", variant: "success" });
     }
   }
 
   async function handleRegenField(field: "hook" | "cta" | "creative_direction") {
     if (!local) return;
     setBusyAction(`field-${field}`);
-    const updated = await callAI({ action: "field", postId: local.id, field });
+    const fields = await callAI({ action: "field", postId: local.id, field });
     setBusyAction(null);
-    if (updated) {
-      setLocal(updated);
-      router.refresh();
-      toast({ title: "Regenerated", variant: "success" });
+    if (fields) {
+      setLocal((prev) => (prev ? { ...prev, ...fields } : prev));
+      setDirty(true);
+      toast({ title: "Applied — click Save to keep these changes", variant: "success" });
     }
   }
 
@@ -152,6 +165,7 @@ export function PostDetailDialog({
       toast({ title: "Couldn't save", description: result.error, variant: "error" });
       return;
     }
+    setDirty(false);
     toast({ title: "Post saved", variant: "success" });
     router.refresh();
   }
@@ -404,7 +418,10 @@ export function PostDetailDialog({
             <Textarea rows={4} value={local.creative_direction ?? ""} onChange={(e) => update("creative_direction", e.target.value)} />
           </SectionWithRegenerate>
 
-          <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <QualitySignals post={local} />
+
+          <div className="flex items-center justify-end gap-3 border-t border-border pt-4">
+            {dirty && !saving && <span className="text-xs text-text-muted">Unsaved changes</span>}
             <Button onClick={handleSave} loading={saving}>
               Save
             </Button>
