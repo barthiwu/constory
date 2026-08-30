@@ -168,10 +168,6 @@ export async function updatePost(supabase: DB, postId: string, input: Partial<Cr
   return data;
 }
 
-export async function movePost(supabase: DB, postId: string, newDate: string): Promise<CalendarPost> {
-  return updatePost(supabase, postId, { scheduled_date: newDate } as Partial<CreatePostInput>);
-}
-
 export async function duplicatePost(supabase: DB, postId: string): Promise<CalendarPost> {
   const original = await getPost(supabase, postId);
   if (!original) throw new Error("Post not found");

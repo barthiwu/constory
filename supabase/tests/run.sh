@@ -20,7 +20,7 @@ sudo -u "$PSQL_SUPERUSER" psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE $DB_NAME;"
 echo "== Bootstrapping auth simulation (migration 0001 references auth.users) =="
 run_psql "$SCRIPT_DIR/00_bootstrap_auth_sim.sql"
 
-echo "== Applying migrations 0001-0004 =="
+echo "== Applying core migrations 0001-0004 =="
 for f in "$MIGRATIONS_DIR"/0001_*.sql "$MIGRATIONS_DIR"/0002_*.sql "$MIGRATIONS_DIR"/0003_*.sql "$MIGRATIONS_DIR"/0004_*.sql; do
   echo "  -> $(basename "$f")"
   run_psql "$f"
@@ -37,6 +37,14 @@ run_psql "$SCRIPT_DIR/01b_legacy_workspace_fixture.sql"
 
 echo "== Applying migration 0005 (onboarding progress) =="
 run_psql "$MIGRATIONS_DIR"/0005_*.sql
+
+echo "== Applying remaining migrations (0006+) =="
+shopt -s nullglob
+for f in "$MIGRATIONS_DIR"/000[6-9]_*.sql "$MIGRATIONS_DIR"/00[1-9][0-9]_*.sql; do
+  echo "  -> $(basename "$f")"
+  run_psql "$f"
+done
+shopt -u nullglob
 
 for f in "$SCRIPT_DIR"/0[2-9]_*.sql; do
   echo ""
