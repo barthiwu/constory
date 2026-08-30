@@ -14,7 +14,7 @@ import { GenerationOverlay } from "@/components/ai/generation-overlay";
 import { STRATEGY_STAGES } from "@/lib/ai/stages";
 import { PillarCard } from "@/components/strategy/pillar-card";
 import { ContentMixBar } from "@/components/strategy/content-mix-bar";
-import { updateStrategySummaryAction, createPillarAction } from "@/app/app/(shell)/strategy/actions";
+import { createStrategyAction, updateStrategySummaryAction, createPillarAction } from "@/app/app/(shell)/strategy/actions";
 import { formatDateTime } from "@/lib/utils";
 import type { ContentStrategy, ContentPillar } from "@/types/database";
 
@@ -36,6 +36,31 @@ export function StrategyView({
   const [savingSummary, setSavingSummary] = useState(false);
   const [addingPillar, setAddingPillar] = useState(false);
   const [pillarDraft, setPillarDraft] = useState({ name: "", description: "", recommended_percentage: 0 });
+  const [creatingManually, setCreatingManually] = useState(false);
+  const [manualDraft, setManualDraft] = useState({ strategy_summary: "", monthly_theme: "" });
+  const [creatingSummary, setCreatingSummary] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  async function handleCreateManually() {
+    if (!manualDraft.strategy_summary.trim()) {
+      setCreateError("Describe your content strategy to continue.");
+      return;
+    }
+    setCreateError(null);
+    setCreatingSummary(true);
+    const result = await createStrategyAction(workspaceId, {
+      strategy_summary: manualDraft.strategy_summary,
+      monthly_theme: manualDraft.monthly_theme || null,
+      content_mix: [],
+    });
+    setCreatingSummary(false);
+    if (result.error) {
+      toast({ title: "Couldn't create strategy", description: result.error, variant: "error" });
+      return;
+    }
+    toast({ title: "Strategy created", variant: "success" });
+    router.refresh();
+  }
 
   async function handleGenerate() {
     setGenerating(true);
@@ -80,17 +105,68 @@ export function StrategyView({
   const totalPercentage = pillars.reduce((sum, p) => sum + p.recommended_percentage, 0);
 
   if (!strategy) {
+    if (creatingManually) {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>Create your content strategy</CardTitle>
+            <CardDescription>Write your strategy in your own words — you can add content pillars once it&apos;s saved.</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-4">
+            <div className="grid gap-1.5">
+              <label htmlFor="strategy-summary" className="text-sm font-medium text-text-primary">
+                Strategy summary
+              </label>
+              <Textarea
+                id="strategy-summary"
+                rows={5}
+                placeholder="Describe the strategic direction for your content — who it's for, what it should achieve, and how it should feel."
+                value={manualDraft.strategy_summary}
+                onChange={(e) => setManualDraft({ ...manualDraft, strategy_summary: e.target.value })}
+              />
+              {createError && <p className="text-sm text-danger">{createError}</p>}
+            </div>
+            <div className="grid gap-1.5">
+              <label htmlFor="strategy-theme" className="text-sm font-medium text-text-primary">
+                Monthly theme <span className="font-normal text-text-muted">(optional)</span>
+              </label>
+              <Input
+                id="strategy-theme"
+                placeholder="e.g. Back to school"
+                value={manualDraft.monthly_theme}
+                onChange={(e) => setManualDraft({ ...manualDraft, monthly_theme: e.target.value })}
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setCreatingManually(false)} disabled={creatingSummary}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateManually} loading={creatingSummary}>
+                Create strategy
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
     return (
       <>
         <EmptyState
           icon={Compass}
           title="You haven't built your content strategy yet"
-          description="Constory will turn your brand information into a strategy and content pillars."
+          description="Your strategy provides the foundation for your content ideas and calendar. Write it yourself, or let Constory generate a starting point."
           action={
-            <Button onClick={handleGenerate}>
-              <Sparkles className="h-4 w-4" />
-              Generate Strategy
-            </Button>
+            <div className="grid justify-items-center gap-2">
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button onClick={() => setCreatingManually(true)}>Create Manually</Button>
+                <Button variant="secondary" onClick={handleGenerate} loading={generating}>
+                  <Sparkles className="h-4 w-4" />
+                  Generate with AI
+                </Button>
+              </div>
+              <p className="text-xs text-text-muted">AI generation requires an OpenAI key to be configured — manual creation always works.</p>
+            </div>
           }
         />
         {generationError && <ErrorState message={generationError} onRetry={handleGenerate} className="mt-4" />}
