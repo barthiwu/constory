@@ -34,6 +34,25 @@
   --foreground: var(--color-text-primary);
 }
 
+/* Dark theme: swaps the black/white-based neutral scale (background, surface,
+   text, border) to its dark-mode counterpart. Brand color (constory-blue),
+   the logo's fixed constory-blue, and the semantic status colors
+   (success/warning/danger) are intentionally left unchanged -- only the
+   black/white side of the palette inverts. Applied via next-themes'
+   `data-theme` attribute on <html> (see components/theme-provider.tsx). */
+[data-theme="dark"] {
+  --color-app-background: #0a0a0a;
+  --color-surface: #151517;
+  --color-surface-secondary: #1f2024;
+  --color-text-primary: #f8f9fb;
+  --color-text-secondary: #9aa2b1;
+  --color-text-muted: #6b7280;
+  --color-border: #26282e;
+
+  --background: var(--color-app-background);
+  --foreground: var(--color-text-primary);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

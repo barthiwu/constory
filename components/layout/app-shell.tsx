@@ -52,7 +52,7 @@ export function AppShell({ workspaces, activeWorkspaceId, profile, children }: A
   const sidebarInner = (onNavigate?: () => void) => (
     <div className="flex h-full flex-col gap-4 p-4">
       <div className={cn("flex items-center gap-2", collapsed && !onNavigate && "justify-center")}>
-        <Link href="/app/dashboard" className="text-lg font-semibold tracking-tight text-constory-black">
+        <Link href="/app/dashboard" className="text-[26.1px] font-semibold tracking-tight text-constory-blue">
           {collapsed && !onNavigate ? "C" : "Constory"}
         </Link>
       </div>
@@ -98,7 +98,7 @@ export function AppShell({ workspaces, activeWorkspaceId, profile, children }: A
               {sidebarInner(() => setMobileOpen(false))}
             </SheetContent>
           </Sheet>
-          <Link href="/app/dashboard" className="text-base font-semibold tracking-tight text-constory-black">
+          <Link href="/app/dashboard" className="text-[23.2px] font-semibold tracking-tight text-constory-blue">
             Constory
           </Link>
           <div className="w-9" aria-hidden="true" />
