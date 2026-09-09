@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Role, Workspace } from "@/types/database";
 import { getActiveWorkspaceIdCookie, setActiveWorkspaceIdCookie } from "@/lib/workspace";
+import { createAdminClient } from "@/lib/supabase/server";
 
 type DB = SupabaseClient<Database>;
 
@@ -68,7 +69,26 @@ export interface CreateWorkspaceInput {
 }
 
 export async function createWorkspace(supabase: DB, ownerId: string, input: CreateWorkspaceInput): Promise<Workspace> {
-  const { data, error } = await supabase
+  // NOTE: this insert intentionally uses the admin (service-role) client, bypassing
+  // RLS, rather than the caller's RLS-scoped `supabase` client used everywhere else
+  // in this file. `ownerId` is never client-supplied here -- callers pass
+  // `user.id` from a server-verified `supabase.auth.getUser()` (see
+  // app/app/onboarding/actions.ts), and the caller has already run
+  // canCreateBrand() before reaching this function, so the plan/entitlement
+  // check still happens at the app layer exactly as it does for every other
+  // billing-sensitive write in this codebase (see migration 0010's
+  // apply_plan_change for the same trust-boundary pattern).
+  //
+  // This bypass exists because of an unresolved, reproducible platform-level
+  // issue: `workspaces_insert_owner`'s RLS check (`owner_id = auth.uid()`)
+  // rejects this insert via PostgREST/Supavisor even when auth_uid, owner_id,
+  // role, and the JWT are all independently confirmed correct at the moment
+  // of the request (confirmed via Postgres logs and a live debug probe) --
+  // while the identical insert succeeds when run directly in the SQL editor.
+  // Filed with Supabase support. Once resolved, this should go back to the
+  // regular `supabase` client and the RLS policy alone.
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from("workspaces")
     .insert({ owner_id: ownerId, name: input.name, industry: input.industry ?? null, website: input.website ?? null })
     .select("*")

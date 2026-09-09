@@ -63,7 +63,10 @@ export async function signupAction(input: SignupInput): Promise<ActionResult> {
   redirect("/app/onboarding");
 }
 
-export async function loginAction(input: LoginInput, redirectTo?: string | null): Promise<ActionResult> {
+export async function loginAction(
+  input: LoginInput,
+  redirectTo?: string | null,
+): Promise<ActionResult> {
   const parsed = loginSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
@@ -76,8 +79,6 @@ export async function loginAction(input: LoginInput, redirectTo?: string | null)
     return { error: friendlyAuthError(error.message) };
   }
 
-  // Never trust the client-supplied redirect target directly — validate it against
-  // an allowlist of safe, in-app paths before using it (prevents open redirects).
   redirect(getSafeRedirectPath(redirectTo));
 }
 

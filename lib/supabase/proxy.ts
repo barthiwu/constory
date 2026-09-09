@@ -6,6 +6,21 @@ import { NextResponse, type NextRequest } from "next/server";
  * users away from the protected /app area. Called from the root proxy.ts.
  */
 export async function updateSession(request: NextRequest) {
+  const { pathname: requestPathname } = request.nextUrl;
+
+  // Public routes do not need Supabase session refresh/checking.
+  // Avoid making an Auth request on login/signup/password-recovery pages.
+  const publicAuthRoutes = [
+    "/login",
+    "/signup",
+    "/forgot-password",
+    "/reset-password",
+  ];
+
+  if (publicAuthRoutes.some((route) => requestPathname === route)) {
+    return NextResponse.next();
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(

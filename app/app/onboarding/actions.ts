@@ -17,13 +17,6 @@ export interface OnboardingWorkspaceInput {
   website?: string;
 }
 
-/**
- * Step 0 (workspace basics). Creates a new workspace on first use, or updates
- * the existing draft when the user is resuming. Resuming requires the caller to
- * actually be a member of the workspace they claim to be resuming — this is an
- * explicit app-level check, not something left to RLS alone, since a client
- * could otherwise pass back an arbitrary workspace id.
- */
 export async function startOnboardingAction(
   input: OnboardingWorkspaceInput,
   existingWorkspaceId?: string,
@@ -32,6 +25,7 @@ export async function startOnboardingAction(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
   if (!user) return { error: "Not authenticated." };
 
   try {
@@ -46,27 +40,36 @@ export async function startOnboardingAction(
         industry: input.industry || null,
         website: input.website || null,
       });
+
       workspaceId = existingWorkspaceId;
     } else {
       const brandCheck = await canCreateBrand(supabase, user.id);
-      if (!brandCheck.allowed) return { error: brandCheck.reason ?? "Your plan doesn't allow another brand right now." };
+
+      if (!brandCheck.allowed) {
+        return {
+          error: brandCheck.reason ?? "Your plan doesn't allow another brand right now.",
+        };
+      }
 
       const workspace = await createWorkspace(supabase, user.id, {
         name: input.name,
         industry: input.industry || null,
         website: input.website || null,
       });
+
       workspaceId = workspace.id;
     }
 
     await setOnboardingStep(supabase, workspaceId, 1);
+
     return { workspaceId };
-  } catch {
+  } catch (error) {
+    console.error("ONBOARDING WORKSPACE ERROR:", error);
     return { error: "We couldn't save your workspace. Please try again." };
   }
 }
 
-/**
+/**  
  * Persists one onboarding step's brand-profile fields (if any) and advances the
  * saved resume point. Called after every step, not just at the very end, so
  * progress survives a refresh, logout, or the browser closing mid-flow.
