@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Lightbulb, Plus, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -71,6 +71,13 @@ export function IdeasView({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<IdeaStatus | "all">("all");
   const [pillarFilter, setPillarFilter] = useState<string>("all");
+  // Shared across status-change/delete/duplicate/edit -- these are all
+  // per-card mutations on the same grid, so one pending flag driving a
+  // dimmed-grid affordance is clearer than juggling four separate ones,
+  // and keeps `isPending` true until router.refresh() actually lands
+  // (not just until the server action call resolves), which is what was
+  // making the grid look briefly stale/stuck after an action.
+  const [listPending, startListTransition] = useTransition();
 
   // AI review-before-save state — generated ideas never touch the database
   // until the user selects which ones to keep and clicks Save.
@@ -88,10 +95,12 @@ export function IdeasView({
 
   const filtersActive = search.trim() !== "" || statusFilter !== "all" || pillarFilter !== "all";
 
-  async function handleStatusChange(idea: ContentIdea, status: IdeaStatus) {
-    const result = await updateIdeaAction(idea.id, { status });
-    if (result.error) toast({ title: "Couldn't update status", description: result.error, variant: "error" });
-    else router.refresh();
+  function handleStatusChange(idea: ContentIdea, status: IdeaStatus) {
+    startListTransition(async () => {
+      const result = await updateIdeaAction(idea.id, { status });
+      if (result.error) toast({ title: "Couldn't update status", description: result.error, variant: "error" });
+      else router.refresh();
+    });
   }
 
   async function handleGenerate() {
@@ -153,18 +162,23 @@ export function IdeasView({
     router.refresh();
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!deleteTarget) return;
-    const result = await deleteIdeaAction(deleteTarget.id);
+    const target = deleteTarget;
     setDeleteTarget(null);
-    if (result.error) toast({ title: "Couldn't remove", description: result.error, variant: "error" });
-    else router.refresh();
+    startListTransition(async () => {
+      const result = await deleteIdeaAction(target.id);
+      if (result.error) toast({ title: "Couldn't remove", description: result.error, variant: "error" });
+      else router.refresh();
+    });
   }
 
-  async function handleDuplicate(idea: ContentIdea) {
-    const result = await duplicateIdeaAction(idea.id);
-    if (result.error) toast({ title: "Couldn't duplicate", description: result.error, variant: "error" });
-    else router.refresh();
+  function handleDuplicate(idea: ContentIdea) {
+    startListTransition(async () => {
+      const result = await duplicateIdeaAction(idea.id);
+      if (result.error) toast({ title: "Couldn't duplicate", description: result.error, variant: "error" });
+      else router.refresh();
+    });
   }
 
   const selectedCount = draftIdeas?.filter((d) => d.selected).length ?? 0;
@@ -380,7 +394,10 @@ export function IdeasView({
               }
             />
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div
+              className={`grid gap-4 transition-opacity sm:grid-cols-2 lg:grid-cols-3 ${listPending ? "pointer-events-none opacity-60" : ""}`}
+              aria-busy={listPending}
+            >
               {filteredIdeas.map((idea) => (
                 <IdeaCard
                   key={idea.id}
@@ -404,7 +421,7 @@ export function IdeasView({
         idea={dialogIdea ?? null}
         open={dialogIdea !== undefined}
         onOpenChange={(open) => !open && setDialogIdea(undefined)}
-        onSaved={() => router.refresh()}
+        onSaved={() => startListTransition(() => router.refresh())}
       />
 
       <AddToCalendarDialog

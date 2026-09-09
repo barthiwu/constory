@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Copy, RefreshCw, Sparkles, Trash2, X as XIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -63,6 +63,8 @@ export function PostDetailDialog({
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [duplicating, startDuplicateTransition] = useTransition();
+  const [deleting, startDeleteTransition] = useTransition();
   const [dirty, setDirty] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState(false);
 
@@ -183,29 +185,33 @@ export function PostDetailDialog({
     router.refresh();
   }
 
-  async function handleDuplicate() {
+  function handleDuplicate() {
     if (!local) return;
-    const result = await duplicatePostAction(calendarId, local.id);
-    if (result.error) {
-      toast({ title: "Couldn't duplicate", description: result.error, variant: "error" });
-      return;
-    }
-    toast({ title: "Post duplicated", variant: "success" });
-    router.refresh();
-    onOpenChange(false);
+    startDuplicateTransition(async () => {
+      const result = await duplicatePostAction(calendarId, local.id);
+      if (result.error) {
+        toast({ title: "Couldn't duplicate", description: result.error, variant: "error" });
+        return;
+      }
+      toast({ title: "Post duplicated", variant: "success" });
+      router.refresh();
+      onOpenChange(false);
+    });
   }
 
-  async function handleDelete() {
+  function handleDelete() {
     if (!local) return;
-    const result = await deletePostAction(calendarId, local.id);
     setConfirmDelete(false);
-    if (result.error) {
-      toast({ title: "Couldn't delete", description: result.error, variant: "error" });
-      return;
-    }
-    toast({ title: "Post deleted", variant: "success" });
-    router.refresh();
-    onOpenChange(false);
+    startDeleteTransition(async () => {
+      const result = await deletePostAction(calendarId, local.id);
+      if (result.error) {
+        toast({ title: "Couldn't delete", description: result.error, variant: "error" });
+        return;
+      }
+      toast({ title: "Post deleted", variant: "success" });
+      router.refresh();
+      onOpenChange(false);
+    });
   }
 
   function addHashtag() {
@@ -259,11 +265,11 @@ export function PostDetailDialog({
                 <DropdownMenuItem onSelect={() => handleRegen("alternative_angle")}>Alternative angle</DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <Button variant="secondary" size="sm" onClick={handleDuplicate}>
+            <Button variant="secondary" size="sm" onClick={handleDuplicate} loading={duplicating} disabled={deleting}>
               <Copy className="h-4 w-4" />
               Duplicate
             </Button>
-            <Button variant="destructive-ghost" size="sm" onClick={() => setConfirmDelete(true)}>
+            <Button variant="destructive-ghost" size="sm" onClick={() => setConfirmDelete(true)} disabled={duplicating || deleting}>
               <Trash2 className="h-4 w-4" />
               Delete
             </Button>
@@ -453,8 +459,8 @@ export function PostDetailDialog({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={handleDelete}>
-              Delete
+            <AlertDialogAction variant="destructive" onClick={handleDelete} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

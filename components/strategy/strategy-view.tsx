@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Compass, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -51,6 +51,7 @@ export function StrategyView({
   const [savingSummary, setSavingSummary] = useState(false);
   const [addingPillar, setAddingPillar] = useState(false);
   const [pillarDraft, setPillarDraft] = useState({ name: "", description: "", recommended_percentage: 0 });
+  const [addingPillarPending, startAddPillarTransition] = useTransition();
   const [creatingManually, setCreatingManually] = useState(false);
   const [manualDraft, setManualDraft] = useState({ strategy_summary: "", monthly_theme: "" });
   const [creatingSummary, setCreatingSummary] = useState(false);
@@ -176,16 +177,18 @@ export function StrategyView({
     toast({ title: "Strategy summary saved", variant: "success" });
   }
 
-  async function handleAddPillar() {
+  function handleAddPillar() {
     if (!strategy || !pillarDraft.name.trim()) return;
-    const result = await createPillarAction(workspaceId, strategy.id, pillarDraft);
-    if (result.error) {
-      toast({ title: "Couldn't add pillar", description: result.error, variant: "error" });
-      return;
-    }
-    router.refresh();
-    setAddingPillar(false);
-    setPillarDraft({ name: "", description: "", recommended_percentage: 0 });
+    startAddPillarTransition(async () => {
+      const result = await createPillarAction(workspaceId, strategy.id, pillarDraft);
+      if (result.error) {
+        toast({ title: "Couldn't add pillar", description: result.error, variant: "error" });
+        return;
+      }
+      router.refresh();
+      setAddingPillar(false);
+      setPillarDraft({ name: "", description: "", recommended_percentage: 0 });
+    });
   }
 
   const totalPercentage = pillars.reduce((sum, p) => sum + p.recommended_percentage, 0);
@@ -456,7 +459,7 @@ export function StrategyView({
                 <Button variant="ghost" size="sm" onClick={() => setAddingPillar(false)}>
                   Cancel
                 </Button>
-                <Button size="sm" onClick={handleAddPillar} disabled={!pillarDraft.name.trim()}>
+                <Button size="sm" onClick={handleAddPillar} disabled={!pillarDraft.name.trim()} loading={addingPillarPending}>
                   Add pillar
                 </Button>
               </div>

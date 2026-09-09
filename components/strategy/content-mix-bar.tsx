@@ -1,4 +1,4 @@
-const SEGMENT_COLORS = ["#168BFF", "#0A5FCC", "#7DC4FF", "#B7DEFF", "#0A0A0A", "#667085"];
+const SEGMENT_COLORS = ["#168BFF", "#0A5FCC", "#7DC4FF", "#B7DEFF", "#F59E0B", "#667085"];
 
 export function ContentMixBar({ segments }: { segments: Array<{ name: string; percentage: number }> }) {
   if (segments.length === 0) return null;
