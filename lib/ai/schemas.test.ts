@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { aiIdeaSchema, aiIdeasSchema } from "@/lib/ai/schemas";
+import { aiIdeaSchema, aiIdeasSchema, aiTopicSchema } from "@/lib/ai/schemas";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 
 const VALID_IDEA = {
   title: "Behind the scenes of our morning prep",
@@ -49,9 +50,21 @@ describe("aiIdeaSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("rejects a recommended_format longer than the allowed length", () => {
-    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_format: "x".repeat(81) });
+  it("rejects a recommended_format that isn't one of the app's canonical format options", () => {
+    // Regression: this field used to be free-text, so the AI could return a
+    // value like "video" or "carousel post" that never matched any option in
+    // the app's Format <Select> -- reproduced live, it left the Format field
+    // rendering blank in both the idea-review screen and the saved idea's
+    // edit dialog, despite the idea genuinely having a format saved.
+    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_format: "carousel post" });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts every canonical CONTENT_FORMAT_OPTIONS value for recommended_format", () => {
+    for (const format of CONTENT_FORMAT_OPTIONS) {
+      const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_format: format });
+      expect(result.success).toBe(true);
+    }
   });
 
   it("rejects a content_objective longer than the allowed length", () => {
@@ -99,5 +112,34 @@ describe("aiIdeasSchema", () => {
   it("rejects the batch if any single idea is malformed", () => {
     const result = aiIdeasSchema.safeParse({ ideas: [VALID_IDEA, { ...VALID_IDEA, recommended_format: 7 }] });
     expect(result.success).toBe(false);
+  });
+});
+
+
+const VALID_TOPIC = {
+  reference: "p1",
+  title: "Behind the scenes of our morning prep",
+  pillar_name: "Community",
+  platform: "instagram",
+  objective: "Engage",
+  format: "Short video / Reel",
+};
+
+describe("aiTopicSchema", () => {
+  it("accepts a fully populated, valid AI topic", () => {
+    const result = aiTopicSchema.safeParse(VALID_TOPIC);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a format that isn't one of the app's canonical format options", () => {
+    const result = aiTopicSchema.safeParse({ ...VALID_TOPIC, format: "video" });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts every canonical CONTENT_FORMAT_OPTIONS value for format", () => {
+    for (const format of CONTENT_FORMAT_OPTIONS) {
+      const result = aiTopicSchema.safeParse({ ...VALID_TOPIC, format });
+      expect(result.success).toBe(true);
+    }
   });
 });

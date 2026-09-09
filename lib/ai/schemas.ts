@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 
 // ---------------------------------------------------------------------------
 // Strategy generation
@@ -25,7 +26,15 @@ export const aiIdeaSchema = z.object({
   description: z.string().min(1).max(600),
   pillar_name: z.string().max(80).nullable(),
   recommended_platform: z.string().max(40).nullable(),
-  recommended_format: z.string().max(80).nullable(),
+  // Constrained to the app's own format vocabulary (lib/constants.ts) --
+  // this used to be free-text, so the AI would return values like "video"
+  // or "carousel post" that never matched any option in the Format
+  // <Select>, leaving it stuck showing blank wherever the idea/post was
+  // edited (reproduced live: every AI-generated idea and calendar post's
+  // Format field rendered empty in its edit dialog despite having a real,
+  // saved value). zodResponseFormat enforces this enum at the OpenAI API
+  // level, so the model can no longer return anything else.
+  recommended_format: z.enum(CONTENT_FORMAT_OPTIONS).nullable(),
   content_objective: z.string().max(120).nullable(),
   suggested_hook: z.string().max(300).nullable(),
 });
@@ -44,7 +53,8 @@ export const aiTopicSchema = z.object({
   pillar_name: z.string().min(1).max(80),
   platform: z.string().min(1).max(40),
   objective: z.string().min(1).max(120),
-  format: z.string().min(1).max(80),
+  // See the matching comment on aiIdeaSchema.recommended_format above.
+  format: z.enum(CONTENT_FORMAT_OPTIONS),
 });
 
 export const aiTopicsSchema = z.object({

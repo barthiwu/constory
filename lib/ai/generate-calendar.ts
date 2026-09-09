@@ -5,6 +5,7 @@ import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
 import { largestRemainderAllocate, calculatePostCount, distributeDatesAcrossRange } from "@/lib/ai/distribution";
 import type { ContentPillar, ContentCalendar } from "@/types/database";
 import type { CreatePostInput } from "@/services/calendar-service";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 
 const DETAIL_BATCH_SIZE = 6;
 
@@ -133,6 +134,8 @@ Rules:
 - Every topic must be genuinely distinct from every other topic in this batch, and from any existing content
   listed. Do not create near-duplicates (same subject with slightly different wording).
 - Choose one platform per topic from the calendar's selected platforms, and a format appropriate to it.
+- format must be exactly one of: ${CONTENT_FORMAT_OPTIONS.map((f) => `"${f}"`).join(", ")}. Pick whichever fits
+  the topic and platform best -- never invent a different label.
 - Assign a "reference" to each topic as "p{n}" where n is a running 1-based index across the whole batch, e.g.
   p1, p2, p3 — these must be unique.
 - Respond only with the structured output requested.`;

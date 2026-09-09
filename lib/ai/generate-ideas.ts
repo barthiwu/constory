@@ -1,6 +1,7 @@
 import { zodResponseFormat } from "openai/helpers/zod";
 import { getOpenAIClient, AI_MODEL_FAST, toAIGenerationError, AIGenerationError } from "@/lib/ai/client";
 import { aiIdeasSchema, type AIIdeasOutput } from "@/lib/ai/schemas";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
 
 const SYSTEM_PROMPT = `You are Constory's content ideation engine. You generate specific, usable content ideas for a
@@ -18,6 +19,8 @@ Rules:
   otherwise your best judgment), a recommended_format appropriate to that platform, a short content_objective
   (e.g. "Educate", "Engage", "Promote", "Generate leads", "Build authority"), and an optional suggested_hook — a
   one-line opening/angle that would stop the scroll. Use null for any of these you genuinely can't recommend.
+- recommended_format must be exactly one of: ${CONTENT_FORMAT_OPTIONS.map((f) => `"${f}"`).join(", ")}. Pick
+  whichever fits the idea best -- never invent a different label.
 - Respond only with the structured output requested.`;
 
 export interface GenerateIdeasParams {
