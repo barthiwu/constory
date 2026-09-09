@@ -27,6 +27,7 @@ export default async function SettingsPage() {
         workspaceId={workspace.id}
         workspaceName={workspace.name}
         workspaceDescription={workspace.description ?? ""}
+        workspaceRole={workspace.role}
       />
     </div>
   );

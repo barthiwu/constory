@@ -15,3 +15,9 @@ export async function setActiveWorkspaceIdCookie(workspaceId: string) {
     sameSite: "lax",
   });
 }
+
+/** Clears the active-workspace cookie (e.g. after the active workspace is deleted). */
+export async function clearActiveWorkspaceIdCookie() {
+  const store = await cookies();
+  store.delete(WORKSPACE_COOKIE);
+}

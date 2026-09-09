@@ -148,3 +148,26 @@ export async function switchWorkspace(
   await setActiveWorkspaceIdCookie(workspaceId);
   return { ok: true };
 }
+
+/**
+ * Permanently deletes a workspace and every row that belongs to it -- content
+ * pillars, calendars, calendar posts, ideas, products, memberships, etc. all
+ * cascade-delete at the database level (see migration 0001_init_schema.sql).
+ * Billing history is the one exception: it uses ON DELETE SET NULL so past
+ * invoices/subscriptions survive the workspace being deleted.
+ *
+ * Authorization relies entirely on the `workspaces_delete_owner` RLS policy
+ * (owner_id = auth.uid()) via the caller's regular RLS-scoped client -- unlike
+ * createWorkspace's insert, there's no known platform bug blocking this, so no
+ * admin-client bypass is needed. Because a failed RLS check on DELETE returns
+ * zero affected rows rather than a Postgres error, we explicitly select the
+ * deleted row back and treat zero rows as an authorization failure so callers
+ * can't mistake a silent no-op for success.
+ */
+export async function deleteWorkspace(supabase: DB, workspaceId: string): Promise<void> {
+  const { data, error } = await supabase.from("workspaces").delete().eq("id", workspaceId).select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("Workspace not found, or you don't have permission to delete it.");
+  }
+}

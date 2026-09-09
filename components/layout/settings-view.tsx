@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,8 +9,22 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
-import { updateProfileAction, updateWorkspaceSettingsAction, changePasswordAction } from "@/app/app/(shell)/settings/actions";
+import {
+  updateProfileAction,
+  updateWorkspaceSettingsAction,
+  changePasswordAction,
+  deleteWorkspaceAction,
+} from "@/app/app/(shell)/settings/actions";
 import { logoutAction } from "@/app/(auth)/actions";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 export function SettingsView({
   fullName,
@@ -17,13 +32,16 @@ export function SettingsView({
   workspaceId,
   workspaceName,
   workspaceDescription,
+  workspaceRole,
 }: {
   fullName: string;
   email: string;
   workspaceId: string;
   workspaceName: string;
   workspaceDescription: string;
+  workspaceRole: string;
 }) {
+  const router = useRouter();
   const { toast } = useToast();
 
   const [name, setName] = useState(fullName);
@@ -39,6 +57,10 @@ export function SettingsView({
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [savingPassword, setSavingPassword] = useState(false);
+
+  const [confirmDeleteWorkspace, setConfirmDeleteWorkspace] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false);
 
   useUnsavedChangesWarning(profileDirty || workspaceDirty);
 
@@ -78,6 +100,21 @@ export function SettingsView({
     setPassword("");
     setConfirmPassword("");
     toast({ title: "Password updated", variant: "success" });
+  }
+
+  async function handleDeleteWorkspace() {
+    setDeletingWorkspace(true);
+    const result = await deleteWorkspaceAction(workspaceId);
+    setDeletingWorkspace(false);
+    setConfirmDeleteWorkspace(false);
+    setDeleteConfirmText("");
+    if (result.error) {
+      toast({ title: "Couldn't delete workspace", description: result.error, variant: "error" });
+      return;
+    }
+    toast({ title: "Workspace deleted", variant: "success" });
+    router.push(result.redirectTo ?? "/app");
+    router.refresh();
   }
 
   return (
@@ -143,8 +180,57 @@ export function SettingsView({
             </Button>
             {workspaceDirty && !savingWorkspace && <span className="text-xs text-text-muted">Unsaved changes</span>}
           </div>
+
+          {workspaceRole === "owner" && (
+            <div className="border-t border-border pt-4">
+              <p className="mb-2 text-sm font-medium text-danger">Danger zone</p>
+              <p className="mb-3 text-xs text-text-muted">
+                Permanently delete this workspace and everything in it &mdash; pillars, calendars, posts, ideas, and
+                products. This cannot be undone.
+              </p>
+              <Button variant="destructive" onClick={() => setConfirmDeleteWorkspace(true)}>
+                Delete workspace
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <AlertDialog
+        open={confirmDeleteWorkspace}
+        onOpenChange={(open) => {
+          setConfirmDeleteWorkspace(open);
+          if (!open) setDeleteConfirmText("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete &ldquo;{workspaceName}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently deletes this workspace and all of its pillars, calendars, posts, ideas, and products.
+              This action cannot be undone. Type <span className="font-semibold text-text-primary">{workspaceName}</span> to
+              confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder={workspaceName}
+            autoComplete="off"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={handleDeleteWorkspace}
+              loading={deletingWorkspace}
+              disabled={deleteConfirmText !== workspaceName}
+            >
+              Delete workspace
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Card>
         <CardHeader>

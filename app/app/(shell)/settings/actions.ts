@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { updateWorkspace } from "@/services/workspace-service";
+import { updateWorkspace, deleteWorkspace, getUserWorkspaces } from "@/services/workspace-service";
+import { setActiveWorkspaceIdCookie, clearActiveWorkspaceIdCookie, getActiveWorkspaceIdCookie } from "@/lib/workspace";
 import { z } from "zod";
 
 export interface ActionResult {
@@ -47,6 +48,40 @@ export async function updateWorkspaceSettingsAction(
   } catch {
     return { error: "We couldn't update your workspace. Please try again." };
   }
+}
+
+export interface DeleteWorkspaceResult extends ActionResult {
+  redirectTo?: string;
+}
+
+export async function deleteWorkspaceAction(workspaceId: string): Promise<DeleteWorkspaceResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not authenticated." };
+
+  try {
+    await deleteWorkspace(supabase, workspaceId);
+  } catch {
+    return { error: "We couldn't delete this workspace. Please try again." };
+  }
+
+  // The workspace being deleted here is always the current one (this action is
+  // only reachable from that workspace's own Settings page), so the active
+  // workspace cookie now points at a row that no longer exists.
+  const activeId = await getActiveWorkspaceIdCookie();
+  const remaining = await getUserWorkspaces(supabase);
+  if (activeId === workspaceId) {
+    if (remaining.length > 0) {
+      await setActiveWorkspaceIdCookie(remaining[0].id);
+    } else {
+      await clearActiveWorkspaceIdCookie();
+    }
+  }
+
+  revalidatePath("/app", "layout");
+  return { redirectTo: remaining.length > 0 ? "/app" : "/app/onboarding" };
 }
 
 const passwordSchema = z
