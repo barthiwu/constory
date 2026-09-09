@@ -47,8 +47,14 @@ export function normalizeToHundred(percentages: number[]): number[] {
  * rather than assuming whole weeks.
  */
 export function calculatePostCount(startDate: string, endDate: string, postsPerWeek: number): number {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  // Parsed as UTC (note the "Z") rather than the server's local time -- this
+  // function runs server-side, and a calendar's start/end dates are plain
+  // civil dates with no inherent timezone. Parsing "T00:00:00" without "Z"
+  // is fine here on its own (only a duration is computed, so a shared local
+  // offset cancels out of the subtraction), but see distributeDatesAcrossRange
+  // below for why this pair should stay consistent with it.
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
   const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
   const weeks = days / 7;
   return Math.max(1, Math.round(weeks * postsPerWeek));
@@ -56,8 +62,17 @@ export function calculatePostCount(startDate: string, endDate: string, postsPerW
 
 /** Evenly spread `count` post dates across [startDate, endDate] (inclusive), respecting the range length. */
 export function distributeDatesAcrossRange(startDate: string, endDate: string, count: number): string[] {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  // Parsed as UTC (note the "Z") -- this runs server-side during AI calendar
+  // generation, and without "Z" `new Date(...)` parses "T00:00:00" in the
+  // SERVER's local timezone. The loop below adds day offsets in epoch-ms and
+  // reads the result back out via `.toISOString()`, which is always UTC --
+  // so on a server running east of UTC (e.g. WAT, UTC+1), local midnight for
+  // `startDate` is already the previous UTC day, and every generated date
+  // silently lands one day earlier than intended (reproduced live: a
+  // calendar starting Sep 9 generated its first post dated Sep 8). Forcing
+  // UTC on the way in makes the whole function timezone-independent.
+  const start = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
   const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
 
   if (count <= 1) return [startDate];
