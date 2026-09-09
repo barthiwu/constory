@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Compass, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -61,6 +61,23 @@ export function StrategyView({
   const [draft, setDraft] = useState<StrategyDraft | null>(null);
   const [draftEdited, setDraftEdited] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+
+  // `strategy`/`initialPillars` are server props that only take effect on
+  // the FIRST mount as far as `useState`'s initializer is concerned --
+  // `router.refresh()` after a save/add/delete re-fetches them, but this
+  // component stays mounted the whole time (creating a strategy doesn't
+  // navigate anywhere), so without an explicit sync here the newly
+  // fetched data never reaches `summary`/`pillars` state and the UI keeps
+  // showing whatever was true at first mount (empty, before any strategy
+  // existed).
+  useEffect(() => {
+    setSummary(strategy?.strategy_summary ?? "");
+    setSummaryDirty(false);
+  }, [strategy]);
+
+  useEffect(() => {
+    setPillars(initialPillars);
+  }, [initialPillars]);
 
   // Browser-level backstop against accidental loss (Phase 7 spec section 8):
   // an in-review AI draft with edits, an unsaved summary edit, or a
