@@ -60,7 +60,17 @@ function priceBlock(planId: PlanId, interval: BillingInterval) {
   );
 }
 
-export function PricingSection({ ctaHrefForPlan }: { ctaHrefForPlan: (planId: PlanId) => string }) {
+// Signed-in visitors go straight to the billing page where the plan change
+// actually happens; signed-out visitors go through signup first. Computed
+// here (not passed in as a function prop from the server) because a
+// Server Component cannot pass a plain function to a Client Component --
+// only serializable data crosses that boundary.
+function ctaHrefForPlan(planId: PlanId, isSignedIn: boolean): string {
+  if (isSignedIn) return `/app/settings/billing?plan=${planId}`;
+  return `/signup?plan=${planId}`;
+}
+
+export function PricingSection({ isSignedIn }: { isSignedIn: boolean }) {
   const [interval, setInterval] = useState<BillingInterval>("monthly");
 
   return (
@@ -125,7 +135,7 @@ export function PricingSection({ ctaHrefForPlan }: { ctaHrefForPlan: (planId: Pl
               </ul>
 
               <Button asChild variant={plan.mostPopular ? "primary" : "secondary"} size="lg">
-                <Link href={ctaHrefForPlan(planId)}>{CTA_LABEL[planId]}</Link>
+                <Link href={ctaHrefForPlan(planId, isSignedIn)}>{CTA_LABEL[planId]}</Link>
               </Button>
             </div>
           );

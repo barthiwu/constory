@@ -99,7 +99,7 @@ export default async function DashboardPage() {
       </div>
 
       {workspace.billing_locked && (
-        <div className="flex items-start gap-3 rounded-lg border border-warning bg-warning-light px-4 py-3 text-sm">
+        <div className="flex items-start gap-3 rounded-lg border border-warning bg-surface-secondary px-4 py-3 text-sm">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
           <p className="text-text-primary">
             This brand is locked because it&rsquo;s beyond your current plan&rsquo;s brand limit. It&rsquo;s read-only until you upgrade or choose a

@@ -60,7 +60,7 @@ export function ListView({
                     {platformLabel(post.platform)}
                   </span>
                 </td>
-                <td className="px-4 py-3">{pillar && <Badge variant="blue">{pillar.name}</Badge>}</td>
+                <td className="max-w-[160px] px-4 py-3">{pillar && <Badge variant="blue" className="max-w-full"><span className="min-w-0 truncate">{pillar.name}</span></Badge>}</td>
                 <td className="px-4 py-3 text-text-secondary">{post.format ?? "—"}</td>
                 <td className="px-4 py-3">
                   <Badge variant={STATUS_VARIANT[post.status]}>{post.status}</Badge>

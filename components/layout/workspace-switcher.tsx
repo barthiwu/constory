@@ -61,7 +61,7 @@ export function WorkspaceSwitcher({
             </span>
             {!collapsed && (
               <>
-                <span className="flex-1 truncate">{active?.name ?? "Select workspace"}</span>
+                <span className="min-w-0 flex-1 truncate">{active?.name ?? "Select workspace"}</span>
                 <ChevronsUpDown className="h-4 w-4 shrink-0 text-text-muted" aria-hidden="true" />
               </>
             )}
@@ -72,7 +72,7 @@ export function WorkspaceSwitcher({
           <DropdownMenuSeparator />
           {workspaces.map((w) => (
             <DropdownMenuItem key={w.id} onSelect={() => handleSwitch(w.id)} className="justify-between">
-              <span className="truncate">{w.name}</span>
+              <span className="min-w-0 truncate">{w.name}</span>
               {w.id === activeWorkspaceId && <Check className="h-4 w-4 text-constory-blue" aria-hidden="true" />}
             </DropdownMenuItem>
           ))}

@@ -64,24 +64,24 @@ export function WeekView({
           const dayPosts = postsByDate.get(date) ?? [];
           const isToday = date === todayISO;
           return (
-            <div key={date} className="grid gap-2 rounded-lg border border-border bg-surface p-2">
+            <div key={date} className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface p-2">
               <div className={cn("text-xs font-medium", isToday ? "text-constory-blue" : "text-text-muted")}>{formatDateShort(date)}</div>
-              <div className="grid gap-1.5">
+              <div className="grid grid-cols-1 gap-1.5">
                 {dayPosts.map((post) => {
                   const pillar = post.content_pillar_id ? pillarById.get(post.content_pillar_id) : undefined;
                   return (
                     <button
                       key={post.id}
                       onClick={() => onOpenPost(post)}
-                      className="grid gap-1 rounded-md border border-border bg-app-background p-2 text-left hover:border-constory-blue hover:bg-blue-light"
+                      className="grid grid-cols-1 gap-1 rounded-md border border-border bg-app-background p-2 text-left hover:border-constory-blue hover:bg-blue-light"
                     >
                       <div className="flex items-center gap-1.5">
                         <PlatformIcon platform={post.platform} />
-                        <span className="truncate text-xs font-medium text-text-primary">{post.title}</span>
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">{post.title}</span>
                       </div>
                       {pillar && (
-                        <Badge variant="blue" className="w-fit text-[10px]">
-                          {pillar.name}
+                        <Badge variant="blue" className="max-w-full text-[10px]">
+                          <span className="min-w-0 truncate">{pillar.name}</span>
                         </Badge>
                       )}
                     </button>

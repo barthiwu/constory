@@ -87,8 +87,8 @@ export function PlanPicker({
             <div
               key={planId}
               className={cn(
-                "grid gap-3 rounded-lg border p-4",
-                isCurrent ? "border-constory-blue bg-blue-light" : "border-border bg-surface",
+                "grid gap-3 rounded-lg border bg-surface p-4",
+                isCurrent ? "border-constory-blue" : "border-border",
               )}
             >
               <div className="flex items-center justify-between">

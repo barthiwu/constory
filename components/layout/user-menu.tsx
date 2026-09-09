@@ -37,9 +37,9 @@ export function UserMenu({
             <AvatarFallback>{initials(fullName ?? email)}</AvatarFallback>
           </Avatar>
           {!collapsed && (
-            <span className="grid flex-1 truncate text-left">
-              <span className="truncate text-sm font-medium text-text-primary">{fullName || "Your account"}</span>
-              <span className="truncate text-xs text-text-muted">{email}</span>
+            <span className="grid min-w-0 flex-1 truncate text-left">
+              <span className="min-w-0 truncate text-sm font-medium text-text-primary">{fullName || "Your account"}</span>
+              <span className="min-w-0 truncate text-xs text-text-muted">{email}</span>
             </span>
           )}
         </button>

@@ -92,7 +92,7 @@ export function MonthView({
                   >
                     {Number(date.slice(-2))}
                   </span>
-                  <div className="grid gap-1">
+                  <div className="grid grid-cols-1 gap-1">
                     {dayPosts.slice(0, MAX_VISIBLE_PER_DAY).map((post) => {
                       const pillar = post.content_pillar_id ? pillarById.get(post.content_pillar_id) : undefined;
                       return (
@@ -103,7 +103,7 @@ export function MonthView({
                           className="flex w-full items-center gap-1 rounded border border-border bg-app-background px-1.5 py-1 text-left text-xs hover:border-constory-blue hover:bg-blue-light"
                         >
                           <PlatformIcon platform={post.platform} />
-                          <span className="flex-1 truncate text-text-primary">{post.title}</span>
+                          <span className="min-w-0 flex-1 truncate text-text-primary">{post.title}</span>
                         </button>
                       );
                     })}

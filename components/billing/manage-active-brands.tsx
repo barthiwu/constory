@@ -48,7 +48,7 @@ export function ManageActiveBrands({ workspaces, limit }: { workspaces: Workspac
   const overLimit = selected.size > limit;
 
   return (
-    <div className="grid gap-4 rounded-lg border border-warning bg-warning-light p-4">
+    <div className="grid gap-4 rounded-lg border border-warning bg-surface-secondary p-4">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden="true" />
         <div>

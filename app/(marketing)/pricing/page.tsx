@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { PricingSection } from "@/components/pricing/pricing-section";
 import { ComparisonTable } from "@/components/pricing/comparison-table";
 import { PricingFAQ } from "@/components/pricing/pricing-faq";
-import type { PlanId } from "@/lib/billing/plans";
 
 export const metadata: Metadata = {
   title: "Pricing — Constory",
@@ -20,11 +19,6 @@ export default async function PricingPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  function ctaHrefForPlan(planId: PlanId): string {
-    if (user) return `/app/settings/billing?plan=${planId}`;
-    return `/signup?plan=${planId}`;
-  }
 
   return (
     <div className="flex min-h-screen flex-col bg-app-background">
@@ -64,7 +58,7 @@ export default async function PricingPage() {
         </section>
 
         <section className="px-4 pb-20 sm:px-6">
-          <PricingSection ctaHrefForPlan={ctaHrefForPlan} />
+          <PricingSection isSignedIn={!!user} />
         </section>
 
         <section className="border-t border-border bg-surface px-4 py-16 sm:px-6">
