@@ -26,10 +26,13 @@ export function PlanPicker({
   currentPlanId,
   currentInterval,
   providerName,
+  chargeCurrency,
 }: {
   currentPlanId: PlanId;
   currentInterval: BillingInterval;
   providerName: BillingProviderName;
+  /** Currency Paystack actually charges in — prices below are always shown in USD. */
+  chargeCurrency: string;
 }) {
   const { toast } = useToast();
   const [interval, setInterval] = useState<BillingInterval>(currentInterval === "monthly" ? "monthly" : currentInterval);
@@ -124,6 +127,11 @@ export function PlanPicker({
           : "No payment provider is connected yet in this environment — plan changes take effect immediately without collecting payment."}{" "}
         See the AI Credits panel above for how credits are affected.
       </p>
+      {providerName === "paystack" && chargeCurrency !== "USD" && (
+        <p className="text-xs text-text-muted">
+          Prices are shown in USD. Paystack will charge the {chargeCurrency} equivalent at checkout.
+        </p>
+      )}
     </div>
   );
 }

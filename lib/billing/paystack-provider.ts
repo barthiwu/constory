@@ -20,6 +20,7 @@ import {
 import { getPlanEntitlements, priceForInterval } from "@/lib/billing/plans";
 import { initializeTransaction, verifyTransaction, verifyPaystackSignature } from "@/lib/billing/paystack-client";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
+import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate } from "@/lib/billing/currency";
 import { activatePaidPlanFromPayment, recordBillingEvent } from "@/services/billing-service";
 import { createAdminClient } from "@/lib/supabase/server";
 import type { BillingProvider, CheckoutResult } from "@/lib/billing/provider";
@@ -64,13 +65,19 @@ export class PaystackBillingProvider implements BillingProvider {
       };
     }
 
-    const amountCents = priceForInterval(planId, billingInterval);
+    const usdCents = priceForInterval(planId, billingInterval);
     const planCode = getPaystackPlanCode(planId, billingInterval);
 
+    // Prices are always shown in USD (lib/billing/plans.ts), but this
+    // Paystack integration can only charge in CHARGE_CURRENCY — see
+    // lib/billing/currency.ts for why, and note that Paystack actually
+    // charges the Plan's own configured amount for plan-code checkouts
+    // regardless of what we send here.
+    const fxRate = currentUsdToChargeCurrencyRate();
     const result = await initializeTransaction({
       email,
-      amountCents,
-      currency: "USD",
+      amountCents: usdCentsToChargeCurrencyMinorUnits(usdCents),
+      currency: CHARGE_CURRENCY,
       planCode,
       callbackUrl: `${appUrl()}/app/settings/billing`,
       metadata: {
@@ -79,6 +86,8 @@ export class PaystackBillingProvider implements BillingProvider {
         plan_slug: planId,
         billing_interval: billingInterval,
         environment: process.env.NODE_ENV ?? "development",
+        usd_amount_cents: usdCents,
+        fx_rate_to_charge_currency: fxRate,
       },
     });
 

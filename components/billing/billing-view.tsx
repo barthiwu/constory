@@ -41,12 +41,15 @@ export function BillingView({
   workspaces,
   brandLimit,
   providerName,
+  chargeCurrency,
 }: {
   subscription: Subscription | null;
   creditBalance: CreditBalance | null;
   workspaces: Array<{ id: string; name: string; billing_locked: boolean; created_at: string }>;
   brandLimit: number | null;
   providerName: BillingProviderName;
+  /** Currency Paystack actually charges in (prices are always shown in USD) — see lib/billing/currency.ts. */
+  chargeCurrency: string;
 }) {
   const { toast } = useToast();
   const router = useRouter();
@@ -159,7 +162,7 @@ export function BillingView({
           <CardDescription>Upgrade or downgrade at any time — your data is never deleted.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PlanPicker currentPlanId={planId} currentInterval={subscription?.billing_interval ?? "monthly"} providerName={providerName} />
+          <PlanPicker currentPlanId={planId} currentInterval={subscription?.billing_interval ?? "monthly"} providerName={providerName} chargeCurrency={chargeCurrency} />
         </CardContent>
       </Card>
     </div>

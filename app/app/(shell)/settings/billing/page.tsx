@@ -7,6 +7,7 @@ import { BillingView } from "@/components/billing/billing-view";
 import { getResolvedSubscription, getCreditBalance, listOwnedWorkspaces } from "@/services/billing-service";
 import { getPlanEntitlements } from "@/lib/billing/plans";
 import { getBillingProvider } from "@/lib/billing/provider";
+import { CHARGE_CURRENCY } from "@/lib/billing/currency";
 import { verifyAndActivatePaymentReference } from "@/lib/billing/paystack-provider";
 
 export const metadata: Metadata = { title: "Billing — Constory" };
@@ -51,7 +52,14 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
     <div className="grid gap-6">
       <PageHeader title="Settings" description="Manage your profile, workspace, and account." />
       <SettingsNav />
-      <BillingView subscription={subscription} creditBalance={creditBalance} workspaces={workspaces} brandLimit={brandLimit} providerName={providerName} />
+      <BillingView
+        subscription={subscription}
+        creditBalance={creditBalance}
+        workspaces={workspaces}
+        brandLimit={brandLimit}
+        providerName={providerName}
+        chargeCurrency={CHARGE_CURRENCY}
+      />
     </div>
   );
 }

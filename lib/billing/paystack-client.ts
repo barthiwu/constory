@@ -49,9 +49,10 @@ async function paystackRequest<T>(path: string, init?: RequestInit): Promise<T> 
 
 export interface InitializeTransactionParams {
   email: string;
-  /** Smallest currency unit — cents for USD (Paystack's `amount` is always an integer minor-unit value, regardless of currency). */
+  /** Smallest currency unit for `currency` below (Paystack's `amount` is always an integer minor-unit value, regardless of currency — see lib/billing/currency.ts for USD -> charge-currency conversion). */
   amountCents: number;
-  currency: "USD";
+  /** Whatever currency is actually enabled on this Paystack integration — see lib/billing/currency.ts. Not necessarily USD. */
+  currency: string;
   planCode: string;
   callbackUrl: string;
   /** Validated server-side before this call is made — never derived from client input directly (spec §15-16). */
@@ -61,6 +62,9 @@ export interface InitializeTransactionParams {
     plan_slug: string;
     billing_interval: string;
     environment: string;
+    /** Audit trail: the USD price this actually corresponds to, and the FX rate used to convert it — see lib/billing/currency.ts. */
+    usd_amount_cents?: number;
+    fx_rate_to_charge_currency?: number;
   };
 }
 
