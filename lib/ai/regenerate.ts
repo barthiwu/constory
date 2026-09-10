@@ -4,6 +4,7 @@ import {
   aiTopicRegenSchema,
   aiCaptionRegenSchema,
   aiFieldRegenSchema,
+  normalizeHashtags,
   type AITopicRegenOutput,
   type AICaptionRegenOutput,
 } from "@/lib/ai/schemas";
@@ -103,7 +104,7 @@ export async function regenerateCaption(ctx: AIContext, post: CalendarPost): Pro
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return a usable caption. Please try again.");
-    return parsed;
+    return { ...parsed, hashtags: normalizeHashtags(parsed.hashtags) };
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't regenerate this caption right now. The current content is unchanged.");
   }

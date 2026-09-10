@@ -1,6 +1,6 @@
 import { zodResponseFormat } from "openai/helpers/zod";
 import { getOpenAIClient, AI_MODEL_FAST, AIGenerationError } from "@/lib/ai/client";
-import { aiTopicsSchema, aiBatchPostDetailsSchema, type AITopicsOutput, type AIBatchPostDetailsOutput } from "@/lib/ai/schemas";
+import { aiTopicsSchema, aiBatchPostDetailsSchema, normalizeHashtags, type AITopicsOutput, type AIBatchPostDetailsOutput } from "@/lib/ai/schemas";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
 import { largestRemainderAllocate, calculatePostCount, distributeDatesAcrossRange } from "@/lib/ai/distribution";
 import type { ContentPillar, ContentCalendar } from "@/types/database";
@@ -109,7 +109,7 @@ export async function generateCalendarContent(
       hook: detail?.hook ?? null,
       caption: detail?.caption ?? null,
       cta: detail?.cta ?? null,
-      hashtags: detail?.hashtags ?? [],
+      hashtags: detail?.hashtags ? normalizeHashtags(detail.hashtags) : [],
       creative_direction: detail?.creative_direction ?? null,
       status: "draft",
     };

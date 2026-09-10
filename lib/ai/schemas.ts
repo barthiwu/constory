@@ -1,6 +1,29 @@
 import { z } from "zod";
 import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 
+/**
+ * Hashtag strings as the model returns them are inconsistent about whether
+ * they already include a leading "#" (and occasionally leading whitespace).
+ * Every render site (e.g. components/content/post-detail-dialog.tsx) adds
+ * its own "#" prefix, exactly like the manual "add a hashtag" input strips
+ * one on the way in — so any tag that still carries "#" when it reaches
+ * that code doubles up on screen ("##BlitzDesigns", "# #BathroomGoals").
+ *
+ * This can't live as a Zod `.transform()` on the hashtags schema below:
+ * those schemas are also fed straight into openai/helpers/zod's
+ * zodResponseFormat() to build the structured-output JSON Schema sent to
+ * the model, and the OpenAI SDK throws ("Transforms cannot be represented
+ * in JSON Schema") the moment a transform is present anywhere in that
+ * schema — found the hard way when adding one here 502'd every AI call
+ * that touches hashtags. So normalization has to happen as a plain
+ * function, applied by each caller to the parsed result instead (see
+ * lib/ai/regenerate.ts's regenerateCaption and
+ * lib/ai/generate-calendar.ts's post-detail step).
+ */
+export function normalizeHashtags(tags: string[]): string[] {
+  return tags.map((tag) => tag.trim().replace(/^#+/, ""));
+}
+
 // ---------------------------------------------------------------------------
 // Strategy generation
 // ---------------------------------------------------------------------------
