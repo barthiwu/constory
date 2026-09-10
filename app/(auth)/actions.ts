@@ -31,12 +31,18 @@ function friendlyAuthError(message: string): string {
   return "Something went wrong. Please try again.";
 }
 
-export async function signupAction(input: SignupInput): Promise<ActionResult> {
+export async function signupAction(input: SignupInput, redirectTo?: string | null): Promise<ActionResult> {
   const parsed = signupSchema.safeParse(input);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
   const { fullName, email, password } = parsed.data;
+
+  // `redirectTo` is where a signup that started from a team-invite link
+  // (see app/invite/[token]/page.tsx) needs to land afterward instead of
+  // onboarding — always re-validated through getSafeRedirectPath, never
+  // trusted as-is (same rule as loginAction below).
+  const safeRedirect = getSafeRedirectPath(redirectTo, "/app/onboarding");
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
@@ -44,7 +50,9 @@ export async function signupAction(input: SignupInput): Promise<ActionResult> {
     password,
     options: {
       data: { full_name: fullName },
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/login`,
+      emailRedirectTo: redirectTo
+        ? `${process.env.NEXT_PUBLIC_APP_URL}/login?redirectTo=${encodeURIComponent(safeRedirect)}`
+        : `${process.env.NEXT_PUBLIC_APP_URL}/login`,
     },
   });
 
@@ -60,7 +68,7 @@ export async function signupAction(input: SignupInput): Promise<ActionResult> {
     };
   }
 
-  redirect("/app/onboarding");
+  redirect(safeRedirect);
 }
 
 export async function loginAction(
@@ -96,7 +104,11 @@ export async function forgotPasswordAction(input: ForgotPasswordInput): Promise<
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
-    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/reset-password`,
+    // Routes through app/auth/confirm/route.ts (a Route Handler) so the
+    // code exchange can actually persist the session cookie -- see that
+    // file's comment for why exchanging directly in a page Server
+    // Component (the previous approach) silently failed to do so.
+    redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirm?next=/reset-password`,
   });
 
   // Always report success to avoid leaking which emails have accounts.

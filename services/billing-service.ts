@@ -10,11 +10,41 @@ import type {
 } from "@/types/database";
 import { getPlanCreditAllowance, getPlanEntitlements, nextPeriodEnd } from "@/lib/billing/plans";
 import type { AIActionType } from "@/lib/billing/credit-costs";
+import { createAdminClient } from "@/lib/supabase/server";
+import { createSubscription as createPaystackSubscription } from "@/lib/billing/paystack-client";
+import { getPaystackPlanCode } from "@/lib/billing/paystack-plan-codes";
 
 type DB = SupabaseClient<Database>;
 
 export async function getSubscription(supabase: DB, ownerId: string): Promise<Subscription | null> {
-  const { data, error } = await supabase.from("subscriptions").select("*").eq("owner_id", ownerId).maybeSingle();
+  const { data, error } = await supabase
+    .from("subscriptions")
+    // Explicit column list, not "*" — migration 0020 revoked SELECT on
+    // provider_subscription_token/provider_authorization_code from
+    // `authenticated` (those two are service_role-only), so select("*")
+    // fails under PostgREST for a non-admin client. Callers that hold an
+    // admin client and genuinely need those two fields (disabling/enabling
+    // the live Paystack subscription) should use getSubscriptionAdmin
+    // below instead.
+    .select(
+      "id, owner_id, plan_id, status, billing_interval, current_period_start, current_period_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, provider, provider_customer_id, provider_subscription_id, created_at, updated_at"
+    )
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as Subscription | null;
+}
+
+/**
+ * Admin-only counterpart to getSubscription — selects every column,
+ * including provider_subscription_token/provider_authorization_code, which
+ * are locked out of `authenticated`'s SELECT grant (migration 0020). Only
+ * ever call this with the service-role admin client (never with a
+ * user-scoped session client, which would get a PostgREST permission
+ * error trying to select those two columns).
+ */
+export async function getSubscriptionAdmin(admin: DB, ownerId: string): Promise<Subscription | null> {
+  const { data, error } = await admin.from("subscriptions").select("*").eq("owner_id", ownerId).maybeSingle();
   if (error) throw error;
   return data as Subscription | null;
 }
@@ -64,50 +94,178 @@ export async function listOwnedWorkspaces(
 }
 
 /**
- * A cancelled-but-still-active subscription (`cancel_at_period_end`) has no
- * background job to flip it to Free once the period ends in this
- * environment — so every read lazily applies that transition first, exactly
- * like consume_ai_credits() lazily rolls the credit period forward. This
- * always returns the semantically-correct subscription even if the
- * best-effort write below is skipped (e.g. a non-owner workspace member is
- * only ever allowed to *read* billing state — see the RLS policies in
- * migration 0008 — so their read still reports "free" on time, the DB row
- * itself simply catches up whenever the owner is next resolved).
+ * A subscription with a scheduled transition — either an explicit "Cancel
+ * subscription" (`cancel_at_period_end`, which now always pairs with
+ * `pending_plan_id = 'free'`) or a scheduled downgrade to a cheaper paid
+ * plan (`pending_plan_id` alone) — has no background job to actually apply
+ * that transition once the period ends in this environment, so every read
+ * lazily applies it first, exactly like consume_ai_credits() lazily rolls
+ * the credit period forward. `pending_plan_id` is the single source of
+ * truth for what to resolve to; `cancel_at_period_end` is kept only as a
+ * UI-facing "this was an explicit cancellation, not just a downgrade" flag
+ * (see cancelSubscription/scheduleDowngrade/resumeSubscription below, which
+ * always set both together).
+ *
+ * When the target is a *paid* plan on the Paystack provider (a downgrade to
+ * a cheaper paid tier, not a cancellation to Free), this is also the moment
+ * Paystack actually gets charged for the new plan — see the "real Paystack
+ * charge" block below. That only happens here, lazily, on whichever request
+ * first notices the period has ended, because this environment has no
+ * background job/cron to trigger it exactly at the renewal instant; the
+ * account's Paystack subscription for the OLD plan was already disabled
+ * back when the downgrade was scheduled (see scheduleDowngrade in
+ * lib/billing/paystack-provider.ts), so nothing double-charges in the
+ * meantime — worst case, if nobody visits the app right after the period
+ * ends, the new charge simply waits for the next visit rather than firing
+ * early or not at all.
+ *
+ * This always returns the semantically-correct subscription even if the
+ * persist below fails for some reason — a caller that is only a workspace
+ * member (never the owner) can still read billing state (migration 0008's
+ * RLS), and should see the resolved value on time either way; the DB row
+ * itself simply catches up next time this resolves, for anyone.
  */
 export async function getResolvedSubscription(supabase: DB, ownerId: string): Promise<Subscription | null> {
   const sub = await getSubscription(supabase, ownerId);
   if (!sub) return null;
 
   const periodEnded = new Date(sub.current_period_end).getTime() <= Date.now();
-  if (!(sub.cancel_at_period_end && periodEnded)) return sub;
+  if (!(periodEnded && sub.pending_plan_id)) return sub;
+
+  const resolvedPlanId = sub.pending_plan_id;
+  const resolvedInterval = sub.pending_billing_interval ?? "monthly";
+  const periodStart = new Date();
+  const periodEnd = nextPeriodEnd(resolvedInterval, periodStart);
+  const admin = createAdminClient();
+
+  // provider_authorization_code is locked out of `authenticated`'s SELECT
+  // grant (migration 0020) — a raw Paystack authorization code should never
+  // reach the client. `sub` above may have been fetched with the caller's
+  // own session (getResolvedSubscription is called from page renders with
+  // the user-scoped client), so it never has this field. Re-fetch it here
+  // via the admin client, which isn't subject to that grant.
+  let authorizationCode: string | null = null;
+  if (resolvedPlanId !== "free" && sub.provider === "paystack" && sub.provider_customer_id) {
+    const { data: authRow } = await admin
+      .from("subscriptions")
+      .select("provider_authorization_code")
+      .eq("owner_id", ownerId)
+      .maybeSingle();
+    authorizationCode = authRow?.provider_authorization_code ?? null;
+  }
+
+  // Real-money branch: resolving to a still-paid plan on an account
+  // Paystack actually owns. Guarded by a billing_events row keyed to this
+  // exact (owner, old period_end) transition so a second concurrent/repeat
+  // call — e.g. the billing page and the entitlements check both resolving
+  // the same request — can never trigger a second Paystack charge for the
+  // same renewal. Once this event id is recorded, this branch never runs
+  // again for this transition: a failed charge marks the account past_due
+  // and stops there rather than auto-retrying on every subsequent page
+  // load (which would just keep re-declining and spamming Paystack) — the
+  // customer/owner needs to take an action (fix the card, or the owner
+  // resolves it manually) to move past a past_due state. That's a
+  // deliberate V1 limit, not an oversight.
+  if (resolvedPlanId !== "free" && sub.provider === "paystack" && sub.provider_customer_id && authorizationCode) {
+    const resolveEventId = `resolve_scheduled_change:${ownerId}:${sub.current_period_end}`;
+    const { alreadyProcessed } = await recordBillingEvent(admin, {
+      provider: "paystack",
+      providerEventId: resolveEventId,
+      eventType: "scheduled_downgrade_resolution",
+      ownerId,
+      status: "processed",
+    });
+
+    if (alreadyProcessed) {
+      // Someone already attempted this exact transition (this call, a
+      // concurrent one, or an earlier visit) — never attempt a second
+      // charge. Whatever it left behind (resolved, or past_due) is current.
+      return getSubscription(supabase, ownerId);
+    }
+
+    try {
+      const planCode = getPaystackPlanCode(resolvedPlanId, resolvedInterval);
+      const created = await createPaystackSubscription({
+        customerCode: sub.provider_customer_id,
+        planCode,
+        authorizationCode,
+      });
+
+      const resolved: Subscription = {
+        ...sub,
+        plan_id: resolvedPlanId,
+        status: "active",
+        billing_interval: resolvedInterval,
+        cancel_at_period_end: false,
+        pending_plan_id: null,
+        pending_billing_interval: null,
+        current_period_start: periodStart.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        provider_subscription_id: created.subscription_code,
+        provider_subscription_token: created.email_token,
+      };
+
+      await admin.rpc("resolve_scheduled_plan_change", {
+        p_owner_id: ownerId,
+        p_plan_id: resolvedPlanId,
+        p_billing_interval: resolvedInterval,
+        p_period_start: resolved.current_period_start,
+        p_period_end: resolved.current_period_end,
+        p_credit_allocation: getPlanCreditAllowance(resolvedPlanId),
+        p_provider_subscription_id: created.subscription_code,
+        p_provider_subscription_token: created.email_token,
+      });
+
+      return resolved;
+    } catch (err) {
+      await recordBillingEvent(admin, {
+        provider: "paystack",
+        providerEventId: `${resolveEventId}:error`,
+        eventType: "scheduled_downgrade_resolution",
+        ownerId,
+        status: "error",
+        detail: err instanceof Error ? err.message : "Unknown error charging the new plan.",
+      }).catch(() => {});
+      try {
+        await admin.rpc("mark_subscription_past_due", { p_owner_id: ownerId });
+      } catch {
+        // Best-effort — the returned value below already reflects past_due either way.
+      }
+      return { ...sub, status: "past_due" };
+    }
+  }
 
   const resolved: Subscription = {
     ...sub,
-    plan_id: "free",
+    plan_id: resolvedPlanId,
     status: "active",
-    billing_interval: "monthly",
+    billing_interval: resolvedInterval,
     cancel_at_period_end: false,
-    current_period_start: new Date().toISOString(),
-    current_period_end: nextPeriodEnd("monthly").toISOString(),
+    pending_plan_id: null,
+    pending_billing_interval: null,
+    current_period_start: periodStart.toISOString(),
+    current_period_end: periodEnd.toISOString(),
   };
 
-  // Best-effort persist. Blocked silently by RLS for a non-owner caller —
-  // that's fine, the resolved value above is still what gets used/returned.
-  await supabase
-    .from("subscriptions")
-    .update({
-      plan_id: resolved.plan_id,
-      status: resolved.status,
-      billing_interval: resolved.billing_interval,
-      cancel_at_period_end: resolved.cancel_at_period_end,
-      current_period_start: resolved.current_period_start,
-      current_period_end: resolved.current_period_end,
-    })
-    .eq("owner_id", ownerId)
-    .then(
-      () => {},
-      () => {},
-    );
+  // Best-effort persist via the admin client — a regular authenticated
+  // session can't write plan_id/pending_plan_id/etc at all (migration 0010's
+  // column-level grant only allows self-service cancel_at_period_end), so
+  // this must go through resolve_scheduled_plan_change() (migration 0020),
+  // not a raw .update() with the caller's own session. Deliberately doesn't
+  // touch provider/provider_customer_id — see that function's comment for
+  // why apply_plan_change() can't be reused here.
+  try {
+    await admin.rpc("resolve_scheduled_plan_change", {
+      p_owner_id: ownerId,
+      p_plan_id: resolvedPlanId,
+      p_billing_interval: resolvedInterval,
+      p_period_start: resolved.current_period_start,
+      p_period_end: resolved.current_period_end,
+      p_credit_allocation: getPlanCreditAllowance(resolvedPlanId),
+    });
+  } catch {
+    // Non-fatal — the resolved value above is still what's returned/used.
+  }
 
   return resolved;
 }
@@ -209,15 +367,65 @@ export async function applyPlanChange(
   if (error) throw error;
 }
 
-/** Cancels a paid subscription: stays active until the period ends, then getResolvedSubscription lazily drops it to Free (spec §29). */
+/**
+ * Cancels a paid subscription: stays active until the period ends, then
+ * getResolvedSubscription lazily drops it to Free (spec §29). Sets
+ * `pending_plan_id = 'free'` alongside `cancel_at_period_end` — Cancel is
+ * now just the Free case of the same scheduled-transition mechanism
+ * scheduleDowngrade() uses for a cheaper paid plan, so the two can never
+ * disagree about where the account is headed. Goes through the admin
+ * client + set_subscription_pending_change() (migration 0020): a regular
+ * authenticated session can self-service-update `cancel_at_period_end`
+ * alone (migration 0010's column grant), but not `pending_plan_id` — this
+ * needs both set atomically, so both go through the RPC.
+ *
+ * Purely a local-state change — see lib/billing/paystack-provider.ts's
+ * cancelSubscription for the real Paystack /subscription/disable call that
+ * wraps this on a live Paystack account.
+ */
 export async function cancelSubscription(supabase: DB, ownerId: string): Promise<void> {
-  const { error } = await supabase.from("subscriptions").update({ cancel_at_period_end: true }).eq("owner_id", ownerId);
+  void supabase; // kept for BillingProvider interface symmetry — see changePlan's identical note
+  const { error } = await createAdminClient().rpc("set_subscription_pending_change", {
+    p_owner_id: ownerId,
+    p_cancel_at_period_end: true,
+    p_pending_plan_id: "free",
+    p_pending_billing_interval: null,
+  });
   if (error) throw error;
 }
 
-/** Reverses a pending cancellation before the period ends. */
+/**
+ * Schedules a downgrade to a cheaper *paid* plan (e.g. Pro -> Creator): the
+ * account keeps its current plan's benefits until `current_period_end`,
+ * then getResolvedSubscription lazily moves it to `planId`/`billingInterval`
+ * — exactly like cancelSubscription, just landing somewhere other than
+ * Free. This is what stops a downgrade from immediately charging a brand
+ * new Paystack checkout for the lower plan with no credit for the paid
+ * time already on the account.
+ *
+ * Purely a local-state change — see lib/billing/paystack-provider.ts's
+ * scheduleDowngrade for the real Paystack /subscription/disable call that
+ * wraps this on a live Paystack account.
+ */
+export async function scheduleDowngrade(ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
+  const { error } = await createAdminClient().rpc("set_subscription_pending_change", {
+    p_owner_id: ownerId,
+    p_cancel_at_period_end: false,
+    p_pending_plan_id: planId,
+    p_pending_billing_interval: billingInterval,
+  });
+  if (error) throw error;
+}
+
+/** Reverses a pending cancellation OR a pending downgrade before the period ends — "Keep my plan" is generic across both. */
 export async function resumeSubscription(supabase: DB, ownerId: string): Promise<void> {
-  const { error } = await supabase.from("subscriptions").update({ cancel_at_period_end: false }).eq("owner_id", ownerId);
+  void supabase;
+  const { error } = await createAdminClient().rpc("set_subscription_pending_change", {
+    p_owner_id: ownerId,
+    p_cancel_at_period_end: false,
+    p_pending_plan_id: null,
+    p_pending_billing_interval: null,
+  });
   if (error) throw error;
 }
 
@@ -278,14 +486,23 @@ export async function lockExcessWorkspaces(supabase: DB, ownerId: string, limit:
  * Same effect as applyPlanChange(): updates the subscription and resets the
  * credit period to the new plan's allowance in one go, plus records the
  * Paystack customer/subscription codes for future reference (cancellation,
- * support).
+ * support) — as of the Paystack subscription-lifecycle fix, also the
+ * `authorizationCode` (the reusable card token, needed to auto-bill a
+ * scheduled downgrade at renewal — see getResolvedSubscription above) and
+ * `subscriptionToken` (Paystack's `email_token`, needed to disable/enable
+ * this subscription — see lib/billing/paystack-provider.ts). Both are
+ * written with a plain admin-client `.update()`, not through a column-grant-
+ * restricted RPC, because the service role bypasses those grants entirely —
+ * see migration 0020's SELECT lockdown on these two columns for why they're
+ * restricted from `authenticated` in the first place (they're payment-
+ * capable secrets, not just IDs).
  */
 export async function activatePaidPlanFromPayment(
   adminSupabase: DB,
   ownerId: string,
   planId: PlanId,
   billingInterval: BillingInterval,
-  providerIds: { customerCode?: string | null; subscriptionCode?: string | null },
+  providerIds: { customerCode?: string | null; subscriptionCode?: string | null; subscriptionToken?: string | null; authorizationCode?: string | null },
 ): Promise<void> {
   const now = new Date();
   const periodEnd = nextPeriodEnd("monthly", now);
@@ -297,10 +514,17 @@ export async function activatePaidPlanFromPayment(
     current_period_start: now.toISOString(),
     current_period_end: periodEnd.toISOString(),
     cancel_at_period_end: false,
+    // A real, paid activation always supersedes anything previously
+    // scheduled (e.g. the account had a pending downgrade queued up, then
+    // turned around and upgraded again before it took effect).
+    pending_plan_id: null,
+    pending_billing_interval: null,
     provider: "paystack",
   };
   if (providerIds.customerCode) subscriptionUpdate.provider_customer_id = providerIds.customerCode;
   if (providerIds.subscriptionCode) subscriptionUpdate.provider_subscription_id = providerIds.subscriptionCode;
+  if (providerIds.subscriptionToken) subscriptionUpdate.provider_subscription_token = providerIds.subscriptionToken;
+  if (providerIds.authorizationCode) subscriptionUpdate.provider_authorization_code = providerIds.authorizationCode;
 
   const { error: subErr } = await adminSupabase.from("subscriptions").update(subscriptionUpdate).eq("owner_id", ownerId);
   if (subErr) throw subErr;
@@ -345,7 +569,10 @@ export interface RecordBillingEventInput {
  * `{ alreadyProcessed: true }` without doing anything if this exact provider
  * event was already recorded — the unique (provider, provider_event_id)
  * constraint in migration 0009 is the actual enforcement, this just makes
- * the race-free "insert or detect duplicate" pattern explicit.
+ * the race-free "insert or detect duplicate" pattern explicit. Reused
+ * outside real webhook delivery too — see getResolvedSubscription above,
+ * which keys an event id off (owner, period_end) to guard against a
+ * duplicate Paystack charge for the same scheduled-downgrade transition.
  */
 export async function recordBillingEvent(adminSupabase: DB, input: RecordBillingEventInput): Promise<{ alreadyProcessed: boolean }> {
   const { error } = await adminSupabase.from("billing_events").insert({

@@ -85,7 +85,7 @@ export function BillingView({
     startTransition(async () => {
       const result = await resumeSubscriptionAction();
       if (result.error) return toast({ title: "Couldn't resume", description: result.error, variant: "error" });
-      toast({ title: "Cancellation reversed", variant: "success" });
+      toast({ title: "Scheduled change reversed", description: "You'll stay on your current plan.", variant: "success" });
     });
   }
 
@@ -123,16 +123,18 @@ export function BillingView({
             )}
           </div>
 
-          {!isFree && subscription?.cancel_at_period_end && (
+          {!isFree && subscription?.pending_plan_id && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning-light px-3 py-2 text-sm text-warning">
-              <span>Your plan will move to Free on {formatDateTime(subscription.current_period_end)}.</span>
+              <span>
+                Your plan will move to {PLANS[subscription.pending_plan_id].name} on {formatDateTime(subscription.current_period_end)}.
+              </span>
               <Button size="sm" variant="secondary" onClick={handleResume} loading={isPending}>
                 Keep my plan
               </Button>
             </div>
           )}
 
-          {!isFree && subscription && !subscription.cancel_at_period_end && (
+          {!isFree && subscription && !subscription.pending_plan_id && (
             <Button size="sm" variant="destructive-ghost" onClick={handleCancel} loading={isPending} className="justify-self-start">
               Cancel subscription
             </Button>

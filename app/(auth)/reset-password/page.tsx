@@ -7,22 +7,20 @@ import { Button } from "@/components/ui/button";
 
 export const metadata: Metadata = { title: "Reset password — Constory" };
 
-export default async function ResetPasswordPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ code?: string }>;
-}) {
-  const { code } = await searchParams;
+/**
+ * No longer exchanges a `code` itself — that now happens in
+ * app/auth/confirm/route.ts (a Route Handler, not a Server Component; see
+ * the comment there for why that distinction is what was actually broken).
+ * By the time the browser lands here, the session cookie from a valid link
+ * is already set, so this just checks whether the user is authenticated.
+ */
+export default async function ResetPasswordPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  let linkIsValid = false;
-
-  if (code) {
-    const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    linkIsValid = !error;
-  }
-
-  if (!linkIsValid) {
+  if (!user) {
     return (
       <Card>
         <CardHeader>

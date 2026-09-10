@@ -57,7 +57,11 @@ export function PlanPicker({
         return;
       }
       setPendingPlan(null);
-      toast({ title: planId === "free" ? "Switched to Free" : `Switched to ${PLANS[planId].name}`, description: result.message, variant: "success" });
+      toast({
+        title: result.scheduled ? "Downgrade scheduled" : planId === "free" ? "Switched to Free" : `Switched to ${PLANS[planId].name}`,
+        description: result.message,
+        variant: "success",
+      });
     });
   }
 

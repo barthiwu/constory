@@ -125,3 +125,81 @@ export function verifyPaystackSignature(rawBody: string, signatureHeader: string
   if (expectedBuf.length !== gotBuf.length) return false;
   return crypto.timingSafeEqual(expectedBuf, gotBuf);
 }
+
+// =============================================================================
+// Subscription lifecycle (added for deferred-downgrade support — see
+// lib/billing/paystack-subscription.ts for the higher-level logic that uses
+// these, and services/billing-service.ts's getResolvedSubscription for
+// where createSubscription gets called at lazy period-end resolution).
+// =============================================================================
+
+export interface PaystackSubscriptionSummary {
+  subscription_code: string;
+  email_token: string;
+  status: string;
+  plan: { plan_code: string };
+  authorization?: { authorization_code: string };
+}
+
+/**
+ * GET /customer/:code — used to resolve a customer's current Paystack
+ * subscription (subscription_code + email_token, needed to disable/enable
+ * it) when the row on our side doesn't already have it recorded. Every
+ * subscription created after this fix records these directly at activation
+ * time (see activatePaidPlanFromPayment), so this lookup is really only a
+ * fallback for accounts activated before that — e.g. an existing live
+ * subscription from before this change shipped.
+ */
+export async function fetchCustomerSubscriptions(customerCode: string): Promise<PaystackSubscriptionSummary[]> {
+  const { data } = await paystackRequest<{ data: { subscriptions?: PaystackSubscriptionSummary[] } }>(
+    `/customer/${encodeURIComponent(customerCode)}`,
+  );
+  return data.subscriptions ?? [];
+}
+
+/** POST /subscription/disable — stops the NEXT scheduled charge on this subscription. Does not refund or affect charges already made. */
+export async function disableSubscription(code: string, token: string): Promise<void> {
+  await paystackRequest("/subscription/disable", {
+    method: "POST",
+    body: JSON.stringify({ code, token }),
+  });
+}
+
+/** POST /subscription/enable — reverses disableSubscription (used by "Keep my plan" to undo a scheduled downgrade/cancellation before it takes effect). */
+export async function enableSubscription(code: string, token: string): Promise<void> {
+  await paystackRequest("/subscription/enable", {
+    method: "POST",
+    body: JSON.stringify({ code, token }),
+  });
+}
+
+export interface CreateSubscriptionParams {
+  customerCode: string;
+  planCode: string;
+  /** The reusable card token from the account's original payment (spec: Paystack's `authorization.authorization_code`). Charging it here is what actually bills the new plan — no new checkout, no card re-entry. */
+  authorizationCode: string;
+}
+
+export interface CreateSubscriptionResult {
+  subscription_code: string;
+  email_token: string;
+}
+
+/**
+ * POST /subscription — creates a new Paystack subscription on `planCode`,
+ * charging `authorizationCode` immediately as its first payment. Only ever
+ * called once the account's current paid period has actually ended (see
+ * getResolvedSubscription) — so "immediately" IS "at renewal" from the
+ * customer's perspective, not a surprise early charge.
+ */
+export async function createSubscription(params: CreateSubscriptionParams): Promise<CreateSubscriptionResult> {
+  const { data } = await paystackRequest<{ data: CreateSubscriptionResult }>("/subscription", {
+    method: "POST",
+    body: JSON.stringify({
+      customer: params.customerCode,
+      plan: params.planCode,
+      authorization: params.authorizationCode,
+    }),
+  });
+  return data;
+}

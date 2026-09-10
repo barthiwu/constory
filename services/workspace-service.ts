@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Role, Workspace } from "@/types/database";
+import type { Database, Role, Workspace, InviteRole, WorkspaceInvite } from "@/types/database";
 import { getActiveWorkspaceIdCookie, setActiveWorkspaceIdCookie } from "@/lib/workspace";
+import { createAdminClient } from "@/lib/supabase/server";
 
 type DB = SupabaseClient<Database>;
 
@@ -159,4 +160,202 @@ export async function deleteWorkspace(supabase: DB, workspaceId: string): Promis
   if (!data || data.length === 0) {
     throw new Error("Workspace not found, or you don't have permission to delete it.");
   }
+}
+
+// =============================================================================
+// Team / multi-member workspace management (migration 0021).
+// =============================================================================
+
+export interface WorkspaceMemberSummary {
+  id: string;
+  userId: string;
+  role: Role;
+  fullName: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+  isSelf: boolean;
+  createdAt: string;
+}
+
+/**
+ * The full member roster for a workspace, with each member's email resolved
+ * via the admin client's auth API — `profiles` deliberately has no email
+ * column (Supabase auth.users already owns that), and a regular RLS-scoped
+ * session has no access to other users' auth.users rows at all, so this is
+ * the same pattern already used in app/api/webhooks/paystack/route.ts's
+ * markPastDueByEmail. The membership rows themselves still go through the
+ * caller's own RLS-scoped client first — workspace_members_select_member
+ * already lets any member read the whole roster, so this never uses the
+ * admin client for anything except the email lookup.
+ */
+export async function getWorkspaceMembers(supabase: DB, workspaceId: string, currentUserId: string): Promise<WorkspaceMemberSummary[]> {
+  const { data, error } = await supabase
+    .from("workspace_members")
+    .select("id, user_id, role, created_at, profiles(full_name, avatar_url)")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: true });
+  if (error) throw error;
+
+  const rows = data ?? [];
+  const admin = createAdminClient();
+  const emails = await Promise.all(
+    rows.map(async (row) => {
+      try {
+        const { data: userData } = await admin.auth.admin.getUserById(row.user_id);
+        return userData?.user?.email ?? null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  return rows.map((row, i) => {
+    const profile = row.profiles as unknown as { full_name: string | null; avatar_url: string | null } | null;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      role: row.role as Role,
+      fullName: profile?.full_name ?? null,
+      avatarUrl: profile?.avatar_url ?? null,
+      email: emails[i],
+      isSelf: row.user_id === currentUserId,
+      createdAt: row.created_at,
+    };
+  });
+}
+
+/** Changes a member's role. Never 'owner' — see workspace_members_update_admin (migration 0021), which rejects that at the database level too. */
+export async function updateMemberRole(supabase: DB, workspaceId: string, memberUserId: string, role: InviteRole): Promise<void> {
+  const { data, error } = await supabase
+    .from("workspace_members")
+    .update({ role })
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", memberUserId)
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("Couldn't update that member's role — they may not be a member, or you may not have permission.");
+  }
+}
+
+/** Removes a member from a workspace. Also how "leave workspace" works when `memberUserId` is the caller's own id — see workspace_members_delete_self (migration 0021). */
+export async function removeMember(supabase: DB, workspaceId: string, memberUserId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("workspace_members")
+    .delete()
+    .eq("workspace_id", workspaceId)
+    .eq("user_id", memberUserId)
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("Couldn't remove that member — they may not be a member, or you may not have permission.");
+  }
+}
+
+export interface WorkspaceInviteSummary {
+  id: string;
+  email: string;
+  role: InviteRole;
+  token: string;
+  createdAt: string;
+  expiresAt: string;
+  invitedByName: string | null;
+}
+
+/** Pending invites for a workspace — the "waiting to be accepted" list shown alongside the member roster. */
+export async function getPendingInvites(supabase: DB, workspaceId: string): Promise<WorkspaceInviteSummary[]> {
+  const { data, error } = await supabase
+    .from("workspace_invites")
+    .select("id, email, role, token, created_at, expires_at, profiles!workspace_invites_invited_by_fkey(full_name)")
+    .eq("workspace_id", workspaceId)
+    .eq("status", "pending")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    email: row.email,
+    role: row.role as InviteRole,
+    token: row.token,
+    createdAt: row.created_at,
+    expiresAt: row.expires_at,
+    invitedByName: (row.profiles as unknown as { full_name: string | null } | null)?.full_name ?? null,
+  }));
+}
+
+/**
+ * Creates a pending invite. `invitedBy` must already be server-verified (the
+ * caller's own authenticated session) — the RLS insert policy also checks
+ * `invited_by = auth.uid()` independently, so a mismatched value here would
+ * simply fail at the database, not silently misattribute the invite.
+ */
+export async function createInvite(supabase: DB, workspaceId: string, invitedBy: string, email: string, role: InviteRole): Promise<WorkspaceInvite> {
+  const { data, error } = await supabase
+    .from("workspace_invites")
+    .insert({ workspace_id: workspaceId, email: email.trim().toLowerCase(), role, invited_by: invitedBy })
+    .select("*")
+    .single();
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error("There's already a pending invite for that email.");
+    }
+    throw error;
+  }
+  return data as WorkspaceInvite;
+}
+
+/** Revokes a pending invite — it stops being acceptable, but the row is kept (not deleted) for an audit trail. */
+export async function revokeInvite(supabase: DB, inviteId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from("workspace_invites")
+    .update({ status: "revoked" })
+    .eq("id", inviteId)
+    .eq("status", "pending")
+    .select("id");
+  if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error("Couldn't revoke that invite — it may already be accepted or revoked.");
+  }
+}
+
+export interface InvitePreview {
+  workspaceId: string;
+  workspaceName: string;
+  role: InviteRole;
+  invitedEmail: string;
+  inviterName: string | null;
+  status: "pending" | "accepted" | "revoked";
+  expired: boolean;
+}
+
+/** Public preview for the accept-invite page — works whether or not the visitor is logged in (see get_invite_preview's grant to `anon`). */
+export async function getInvitePreview(supabase: DB, token: string): Promise<InvitePreview | null> {
+  const { data, error } = await supabase.rpc("get_invite_preview", { p_token: token });
+  if (error) throw error;
+  const row = data?.[0];
+  if (!row) return null;
+  return {
+    workspaceId: row.workspace_id,
+    workspaceName: row.workspace_name,
+    role: row.role,
+    invitedEmail: row.invited_email,
+    inviterName: row.inviter_name,
+    status: row.status,
+    expired: row.expired,
+  };
+}
+
+export interface AcceptInviteResult {
+  ok: boolean;
+  reason: string;
+  workspaceId: string | null;
+}
+
+/** Accepts a pending invite for the CALLER's own (already-authenticated) session — see accept_workspace_invite's comment (migration 0021) for why this has to be a SECURITY DEFINER RPC rather than a direct insert. */
+export async function acceptInvite(supabase: DB, token: string): Promise<AcceptInviteResult> {
+  const { data, error } = await supabase.rpc("accept_workspace_invite", { p_token: token });
+  if (error) throw error;
+  const row = data?.[0];
+  if (!row) return { ok: false, reason: "unknown_error", workspaceId: null };
+  return { ok: row.ok, reason: row.reason, workspaceId: row.workspace_id };
 }

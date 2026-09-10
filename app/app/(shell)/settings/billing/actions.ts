@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
 import { setActiveWorkspaces, getResolvedSubscription } from "@/services/billing-service";
-import { getPlanEntitlements } from "@/lib/billing/plans";
+import { getPlanEntitlements, getPlan, isUpgrade } from "@/lib/billing/plans";
 import type { PlanId, BillingInterval } from "@/types/database";
 
 export interface ActionResult {
@@ -28,16 +28,44 @@ async function requireUser() {
 export async function changePlanAction(
   planId: PlanId,
   billingInterval: BillingInterval,
-): Promise<ActionResult & { message?: string; redirectUrl?: string }> {
+): Promise<ActionResult & { message?: string; redirectUrl?: string; scheduled?: boolean }> {
   const { supabase, user } = await requireUser();
   if (!user?.email) return { error: "Not authenticated." };
 
   try {
+    const current = await getResolvedSubscription(supabase, user.id);
+    const currentPlanId = current?.plan_id ?? "free";
+
+    // A downgrade (to Free, or to a cheaper paid plan) never charges
+    // immediately — it's scheduled for when the current paid period ends,
+    // so the account isn't billed again for a plan it's already paid for
+    // part of. Free -> anything and any move to a higher tier is still an
+    // immediate checkout (or immediate switch, for Free). See
+    // lib/billing/plans.ts's isUpgrade and services/billing-service.ts's
+    // cancelSubscription/scheduleDowngrade.
+    if (planId !== currentPlanId && !isUpgrade(currentPlanId, planId)) {
+      const periodEnd = current?.current_period_end ? new Date(current.current_period_end) : null;
+      const whenPhrase = periodEnd ? ` on ${periodEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "";
+
+      if (planId === "free") {
+        await getBillingProvider().cancelSubscription(supabase, user.id);
+      } else {
+        await getBillingProvider().scheduleDowngrade(supabase, user.id, planId, billingInterval);
+      }
+      revalidatePath("/app/settings/billing");
+      revalidatePath("/app", "layout");
+      return {
+        message: `You'll move to ${getPlan(planId).name}${whenPhrase}. You keep your current plan's benefits until then.`,
+        scheduled: true,
+      };
+    }
+
     const result = await getBillingProvider().createCheckout(supabase, user.id, user.email, planId, billingInterval);
     revalidatePath("/app/settings/billing");
     revalidatePath("/app", "layout");
     return { message: result.message, redirectUrl: result.redirectUrl };
-  } catch {
+  } catch (err) {
+    console.error("changePlanAction failed:", err);
     return { error: "We couldn't change your plan. Please try again." };
   }
 }
@@ -50,7 +78,8 @@ export async function cancelSubscriptionAction(): Promise<ActionResult> {
     await getBillingProvider().cancelSubscription(supabase, user.id);
     revalidatePath("/app/settings/billing");
     return {};
-  } catch {
+  } catch (err) {
+    console.error("cancelSubscriptionAction failed:", err);
     return { error: "We couldn't cancel your subscription. Please try again." };
   }
 }
@@ -63,7 +92,8 @@ export async function resumeSubscriptionAction(): Promise<ActionResult> {
     await getBillingProvider().resumeSubscription(supabase, user.id);
     revalidatePath("/app/settings/billing");
     return {};
-  } catch {
+  } catch (err) {
+    console.error("resumeSubscriptionAction failed:", err);
     return { error: "We couldn't resume your subscription. Please try again." };
   }
 }

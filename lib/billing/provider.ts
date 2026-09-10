@@ -7,7 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, PlanId, BillingInterval } from "@/types/database";
-import { applyPlanChange, cancelSubscription, resumeSubscription, getWorkspaceOwnerId, lockExcessWorkspaces } from "@/services/billing-service";
+import { applyPlanChange, cancelSubscription, resumeSubscription, scheduleDowngrade, getWorkspaceOwnerId, lockExcessWorkspaces } from "@/services/billing-service";
 import { getPlanEntitlements } from "@/lib/billing/plans";
 import { isPaystackConfigured } from "@/lib/billing/paystack-client";
 import { createAdminClient } from "@/lib/supabase/server";
@@ -37,6 +37,13 @@ export interface BillingProvider {
   resumeSubscription(supabase: DB, ownerId: string): Promise<void>;
   /** Switches plan/interval directly with no payment step — used for Free, and by the manual provider. */
   changePlan(supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void>;
+  /**
+   * Schedules a downgrade to a cheaper *paid* plan (never Free — that's
+   * cancelSubscription's job, see the comment there) so it takes effect
+   * only when the current period ends, instead of charging a new checkout
+   * immediately with no credit for time already paid on the current plan.
+   */
+  scheduleDowngrade(supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void>;
   /**
    * Verifies an inbound webhook payload's authenticity before any of its
    * contents are trusted (spec §37). The manual provider has no webhooks —
@@ -86,6 +93,10 @@ class ManualBillingProvider implements BillingProvider {
 
   async resumeSubscription(supabase: DB, ownerId: string): Promise<void> {
     await resumeSubscription(supabase, ownerId);
+  }
+
+  async scheduleDowngrade(_supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
+    await scheduleDowngrade(ownerId, planId, billingInterval);
   }
 
   verifyWebhook(): boolean {

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
 import { activatePaidPlanFromPayment, markSubscriptionPastDue, markSubscriptionCancelledByProvider, recordBillingEvent } from "@/services/billing-service";
+import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
 import type { PlanId, BillingInterval } from "@/types/database";
 
 /**
@@ -66,15 +67,36 @@ export async function POST(request: Request) {
         const planId = typeof metadata.plan_slug === "string" ? (metadata.plan_slug as PlanId) : null;
         const billingInterval = typeof metadata.billing_interval === "string" ? (metadata.billing_interval as BillingInterval) : null;
         const customer = (data.customer ?? {}) as Record<string, unknown>;
+        const authorization = (data.authorization ?? {}) as Record<string, unknown>;
+        const customerCode = typeof customer.customer_code === "string" ? customer.customer_code : null;
 
         if (ownerId && planId && billingInterval) {
           // `data.plan` on a charge.success event is Paystack's *plan code*
           // (already known to us via lib/billing/paystack-plan-codes.ts),
-          // not a subscription code — there is no subscription identifier
-          // reliably present at this event, so only the customer code is
-          // recorded here.
+          // not a subscription code — Paystack creates the recurring
+          // Subscription object asynchronously from a plan-code charge, so
+          // it's resolved separately (best-effort: cancelSubscription/
+          // scheduleDowngrade fall back to the same lookup later if it's
+          // not there yet).
+          let subscriptionCode: string | null = null;
+          let subscriptionToken: string | null = null;
+          if (customerCode) {
+            try {
+              const resolved = await resolveActiveProviderSubscription(customerCode);
+              if (resolved) {
+                subscriptionCode = resolved.subscriptionCode;
+                subscriptionToken = resolved.emailToken;
+              }
+            } catch {
+              // Non-fatal — see the comment above.
+            }
+          }
+
           await activatePaidPlanFromPayment(adminSupabase, ownerId, planId, billingInterval, {
-            customerCode: typeof customer.customer_code === "string" ? customer.customer_code : null,
+            customerCode,
+            subscriptionCode,
+            subscriptionToken,
+            authorizationCode: typeof authorization.authorization_code === "string" ? authorization.authorization_code : null,
           });
         }
         break;

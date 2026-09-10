@@ -10,15 +10,25 @@
 // client-supplied price, plan, or "success" flag.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, PlanId, BillingInterval } from "@/types/database";
+import type { Database, PlanId, BillingInterval, Subscription } from "@/types/database";
 import {
   applyPlanChange,
   cancelSubscription as cancelSubscriptionInDb,
   resumeSubscription as resumeSubscriptionInDb,
+  scheduleDowngrade as scheduleDowngradeInDb,
   lockExcessWorkspaces,
+  getSubscriptionAdmin,
 } from "@/services/billing-service";
 import { getPlanEntitlements, priceForInterval } from "@/lib/billing/plans";
-import { initializeTransaction, verifyTransaction, verifyPaystackSignature } from "@/lib/billing/paystack-client";
+import {
+  initializeTransaction,
+  verifyTransaction,
+  verifyPaystackSignature,
+  disableSubscription,
+  createSubscription as createPaystackSubscription,
+  PaystackAPIError,
+} from "@/lib/billing/paystack-client";
+import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
 import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate } from "@/lib/billing/currency";
 import { activatePaidPlanFromPayment, recordBillingEvent } from "@/services/billing-service";
@@ -30,6 +40,107 @@ type DB = SupabaseClient<Database>;
 function appUrl(): string {
   // Same env var the rest of the app uses for absolute links (see app/(auth)/actions.ts).
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+}
+
+/**
+ * Disables the account's live Paystack subscription so it can't auto-charge
+ * again, ahead of a local cancel/downgrade schedule taking effect — called
+ * by both cancelSubscription and scheduleDowngrade below, since both need
+ * exactly the same "stop the old recurring charge" step. A no-op (not an
+ * error) for an account that was never really on Paystack (manual/free, or
+ * `provider_customer_id` never got recorded) — nothing to disable there.
+ *
+ * Always resolves the CURRENT subscription_code/email_token live from
+ * Paystack (GET /customer/:code) rather than trusting the row's cached
+ * values — confirmed in testing that Paystack rotates/invalidates these
+ * across an enable/disable cycle (disable -> enable -> disable again failed
+ * with "Subscription with code not found or already inactive" using a code
+ * that had disabled successfully minutes earlier). The cached columns are
+ * only a fallback for when the live lookup itself can't be done (e.g. the
+ * customer has no subscriptions at all on Paystack's side right now).
+ *
+ * Deliberately lets a Paystack API failure propagate: cancelSubscription/
+ * scheduleDowngrade in this class call this BEFORE writing the local
+ * pending-change state, so if Paystack can't actually be told to stop
+ * billing the old plan, the app doesn't tell the user it scheduled a
+ * downgrade it can't guarantee — better to surface an error and let them
+ * retry than to silently leave the old subscription live.
+ */
+async function disableLivePaystackSubscription(ownerId: string): Promise<void> {
+  const admin = createAdminClient();
+  const sub = await getSubscriptionAdmin(admin, ownerId);
+  if (!sub || sub.provider !== "paystack" || !sub.provider_customer_id) return;
+
+  const resolved = await resolveActiveProviderSubscription(sub.provider_customer_id);
+  const code = resolved?.subscriptionCode ?? sub.provider_subscription_id;
+  const token = resolved?.emailToken ?? sub.provider_subscription_token;
+  if (!code || !token) return; // Nothing active on Paystack's side either — nothing to disable.
+
+  if (resolved && (resolved.subscriptionCode !== sub.provider_subscription_id || resolved.emailToken !== sub.provider_subscription_token)) {
+    const update: Partial<Subscription> = { provider_subscription_id: resolved.subscriptionCode, provider_subscription_token: resolved.emailToken };
+    if (resolved.authorizationCode && !sub.provider_authorization_code) {
+      update.provider_authorization_code = resolved.authorizationCode;
+    }
+    const { error } = await admin.from("subscriptions").update(update).eq("owner_id", ownerId);
+    if (error) throw error;
+  }
+
+  try {
+    await disableSubscription(code, token);
+  } catch (err) {
+    // Confirmed live (see scripts/check-subscription.mjs): Paystack can drop a
+    // subscription from the customer's list entirely once it's been through a
+    // disable, so a second disable attempt (e.g. schedule-downgrade, "Keep my
+    // plan", then Cancel) legitimately finds nothing left to disable and
+    // returns 404 "Subscription with code not found or already inactive".
+    // That's not a failure — the thing disable is FOR (stop the old plan from
+    // auto-charging again) is already true — so swallow only this specific
+    // case and let every other Paystack error still propagate.
+    if (!(err instanceof PaystackAPIError && err.status === 404)) throw err;
+  }
+}
+
+/**
+ * Reverses disableLivePaystackSubscription — called by resumeSubscription
+ * ("Keep my plan") to undo a scheduled cancel/downgrade before it takes
+ * effect, by making sure the account has a real, active recurring
+ * subscription on Paystack again for its CURRENT plan.
+ *
+ * Confirmed live (see scripts/check-subscription.mjs): once a Paystack
+ * subscription has been disabled, POST /subscription/enable rejects it
+ * outright ("Subscription has been cancelled, and cannot be reactivated")
+ * — disable is a one-way door on Paystack's side, not a pause. So this
+ * doesn't bother attempting enable at all; it goes straight to creating a
+ * brand new subscription on the current plan, reusing the account's saved
+ * card (authorization_code) — the same mechanism getResolvedSubscription
+ * uses to charge a resolved downgrade. No new checkout, no card re-entry.
+ *
+ * Best-effort/non-throwing: failing to restore real billing on Paystack's
+ * end shouldn't block the user from reversing the change locally (worst
+ * case they end up needing a fresh checkout, which is still recoverable —
+ * whereas silently NOT disabling on schedule is the scenario worth
+ * blocking on, handled separately in disableLivePaystackSubscription).
+ */
+async function enableLivePaystackSubscriptionIfPending(ownerId: string): Promise<void> {
+  const admin = createAdminClient();
+  const sub = await getSubscriptionAdmin(admin, ownerId);
+  if (!sub || !sub.pending_plan_id || sub.provider !== "paystack" || !sub.provider_customer_id) return;
+  if (!sub.provider_authorization_code || sub.plan_id === "free") return;
+
+  try {
+    const planCode = getPaystackPlanCode(sub.plan_id, sub.billing_interval);
+    const created = await createPaystackSubscription({
+      customerCode: sub.provider_customer_id,
+      planCode,
+      authorizationCode: sub.provider_authorization_code,
+    });
+    await admin
+      .from("subscriptions")
+      .update({ provider_subscription_id: created.subscription_code, provider_subscription_token: created.email_token })
+      .eq("owner_id", ownerId);
+  } catch {
+    // Best-effort — see the comment above.
+  }
 }
 
 export class PaystackBillingProvider implements BillingProvider {
@@ -114,19 +225,38 @@ export class PaystackBillingProvider implements BillingProvider {
   }
 
   /**
-   * Cancels locally (stays active until period end, per spec §29). This does
-   * not also disable the subscription on Paystack's side in this version —
-   * Paystack subscription management (their /subscription/disable endpoint)
-   * is out of scope for what's been verified here; see the completion report
-   * for exactly what's implemented vs. what would still need wiring for a
-   * fully live recurring-billing lifecycle.
+   * Cancels locally (stays active until period end, per spec §29) and, on a
+   * real Paystack subscription, disables it on Paystack's side too — see
+   * disableLivePaystackSubscription above — so the old plan is never
+   * charged again once the period ends. For an account not actually on
+   * Paystack (manual/free), that step is a no-op and this behaves exactly
+   * as before.
    */
   async cancelSubscription(supabase: DB, ownerId: string): Promise<void> {
+    await disableLivePaystackSubscription(ownerId);
     await cancelSubscriptionInDb(supabase, ownerId);
   }
 
   async resumeSubscription(supabase: DB, ownerId: string): Promise<void> {
+    await enableLivePaystackSubscriptionIfPending(ownerId);
     await resumeSubscriptionInDb(supabase, ownerId);
+  }
+
+  /**
+   * Schedules a downgrade to a cheaper paid plan for when the current
+   * period ends. As of the Paystack subscription-lifecycle fix, this now
+   * also disables the account's live Paystack subscription immediately —
+   * see disableLivePaystackSubscription above — so Paystack itself stops
+   * billing the OLD (higher) plan price. The actual switch to the new,
+   * cheaper plan's Paystack subscription happens lazily once the period
+   * really ends — see getResolvedSubscription in services/billing-service.ts,
+   * which creates it via the stored `provider_authorization_code` at that
+   * point, charging the new plan's price automatically with no new
+   * checkout or card re-entry needed from the customer.
+   */
+  async scheduleDowngrade(_supabase: DB, ownerId: string, planId: PlanId, billingInterval: BillingInterval): Promise<void> {
+    await disableLivePaystackSubscription(ownerId);
+    await scheduleDowngradeInDb(ownerId, planId, billingInterval);
   }
 
   /** Delegates to the shared HMAC-SHA512 check — see paystack-client.ts for the exact scheme (spec §37). */
@@ -194,9 +324,32 @@ export async function verifyAndActivatePaymentReference(
     return { status: "already_processed", message: "This payment was already applied to your account." };
   }
 
+  // The transaction-verify response carries the card's reusable
+  // authorization directly, but Paystack creates the recurring Subscription
+  // object asynchronously from a plan-code checkout — it's not on this
+  // response at all, so it's looked up separately (best-effort: if it's not
+  // there yet, cancelSubscription/scheduleDowngrade fall back to the same
+  // lookup later when they actually need it).
+  const authorizationCode = tx.authorization?.authorization_code ?? null;
+  let subscriptionCode: string | null = null;
+  let subscriptionToken: string | null = null;
+  if (tx.customer.customer_code) {
+    try {
+      const resolved = await resolveActiveProviderSubscription(tx.customer.customer_code);
+      if (resolved) {
+        subscriptionCode = resolved.subscriptionCode;
+        subscriptionToken = resolved.emailToken;
+      }
+    } catch {
+      // Non-fatal — see the comment above.
+    }
+  }
+
   await activatePaidPlanFromPayment(adminSupabase, expectedOwnerId, planSlug, billingInterval, {
     customerCode: tx.customer.customer_code ?? null,
-    subscriptionCode: null,
+    subscriptionCode,
+    subscriptionToken,
+    authorizationCode,
   });
 
   return { status: "activated", message: `Payment verified — you're now on the ${planSlug} plan.` };

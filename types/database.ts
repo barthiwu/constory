@@ -49,6 +49,25 @@ export type WorkspaceMember = {
   created_at: string;
 };
 
+/** A role an invite/membership write can target — never 'owner' (no ownership-transfer feature in V1). */
+export type InviteRole = Exclude<Role, "owner">;
+
+export type WorkspaceInviteStatus = "pending" | "accepted" | "revoked";
+
+export type WorkspaceInvite = {
+  id: string;
+  workspace_id: string;
+  email: string;
+  role: InviteRole;
+  invited_by: string;
+  token: string;
+  status: WorkspaceInviteStatus;
+  created_at: string;
+  expires_at: string;
+  accepted_at: string | null;
+  accepted_by: string | null;
+};
+
 export type BrandProfile = {
   id: string;
   workspace_id: string;
@@ -198,9 +217,16 @@ export type Subscription = {
   current_period_start: string;
   current_period_end: string;
   cancel_at_period_end: boolean;
+  /** Plan the account will move to when current_period_end is reached (a scheduled downgrade, including "Cancel" -> free). Null when nothing is scheduled. */
+  pending_plan_id: PlanId | null;
+  pending_billing_interval: BillingInterval | null;
   provider: BillingProviderName;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
+  /** Paystack's subscription `email_token` — required alongside provider_subscription_id to call /subscription/disable or /subscription/enable. Not readable by a regular authenticated session (migration 0020's SELECT column lockdown) — a payment-capable secret, not just an id. */
+  provider_subscription_token: string | null;
+  /** The reusable card token from the account's original Paystack payment, used to auto-bill a scheduled downgrade's new plan at renewal with no new checkout (see getResolvedSubscription in services/billing-service.ts). Same SELECT lockdown as provider_subscription_token. */
+  provider_authorization_code: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -272,6 +298,27 @@ export type Database = {
             columns: ["workspace_id"];
             isOneToOne: false;
             referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      workspace_invites: {
+        Row: WorkspaceInvite;
+        Insert: Partial<WorkspaceInvite> & { workspace_id: string; email: string; role: InviteRole; invited_by: string };
+        Update: Partial<WorkspaceInvite>;
+        Relationships: [
+          {
+            foreignKeyName: "workspace_invites_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "workspace_invites_invited_by_fkey";
+            columns: ["invited_by"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
             referencedColumns: ["id"];
           },
         ];
@@ -364,6 +411,36 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      is_workspace_admin: {
+        Args: {
+          target_workspace_id: string;
+        };
+        Returns: boolean;
+      };
+      get_invite_preview: {
+        Args: {
+          p_token: string;
+        };
+        Returns: {
+          workspace_id: string;
+          workspace_name: string;
+          role: InviteRole;
+          invited_email: string;
+          inviter_name: string | null;
+          status: WorkspaceInviteStatus;
+          expired: boolean;
+        }[];
+      };
+      accept_workspace_invite: {
+        Args: {
+          p_token: string;
+        };
+        Returns: {
+          ok: boolean;
+          reason: string;
+          workspace_id: string | null;
+        }[];
+      };
       consume_ai_credits: {
         Args: {
           p_workspace_id: string;
@@ -390,6 +467,34 @@ export type Database = {
           p_owner_id: string;
         };
         Returns: CreditBalance | null;
+      };
+      set_subscription_pending_change: {
+        Args: {
+          p_owner_id: string;
+          p_cancel_at_period_end: boolean;
+          p_pending_plan_id: PlanId | null;
+          p_pending_billing_interval: BillingInterval | null;
+        };
+        Returns: undefined;
+      };
+      resolve_scheduled_plan_change: {
+        Args: {
+          p_owner_id: string;
+          p_plan_id: PlanId;
+          p_billing_interval: BillingInterval;
+          p_period_start: string;
+          p_period_end: string;
+          p_credit_allocation: number;
+          p_provider_subscription_id?: string | null;
+          p_provider_subscription_token?: string | null;
+        };
+        Returns: undefined;
+      };
+      mark_subscription_past_due: {
+        Args: {
+          p_owner_id: string;
+        };
+        Returns: undefined;
       };
     };
     Enums: Record<string, never>;

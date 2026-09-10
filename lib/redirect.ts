@@ -32,7 +32,10 @@ export function getSafeRedirectPath(
   // Restrict to a safe character set — no control characters, no backslashes.
   if (!SAFE_PATH_CHARS.test(value)) return fallback;
 
-  // Only allow redirecting back into the authenticated app area.
+  // Only allow redirecting back into the authenticated app area, or into
+  // the (also access-controlled server-side) team-invite accept flow --
+  // /app/invite/[token]/accept needs to survive a login/signup round trip
+  // the same way a deep /app link does. See app/invite/[token]/page.tsx.
   if (!/^\/app(\/|$|\?)/.test(value)) return fallback;
 
   return value;

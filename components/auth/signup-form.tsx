@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { signupSchema, type SignupInput } from "@/lib/validations/auth";
 import { signupAction } from "@/app/(auth)/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -13,6 +14,14 @@ import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 
 export function SignupForm() {
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirectTo");
+  // Prefilled when arriving from a team-invite link (see
+  // app/invite/[token]/page.tsx) so the person doesn't have to retype the
+  // exact address the invite was sent to — accept_workspace_invite requires
+  // an exact (case-insensitive) match, so getting this right the first time
+  // avoids a confusing "wrong email" bounce after they've already signed up.
+  const invitedEmail = searchParams.get("email");
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -20,11 +29,14 @@ export function SignupForm() {
     register,
     handleSubmit,
     formState: { errors, isSubmitting },
-  } = useForm<SignupInput>({ resolver: zodResolver(signupSchema) });
+  } = useForm<SignupInput>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: invitedEmail ? { email: invitedEmail } : undefined,
+  });
 
   async function onSubmit(values: SignupInput) {
     setServerError(null);
-    const result = await signupAction(values);
+    const result = await signupAction(values, redirectTo);
     if (result?.error) {
       setServerError(result.error);
       return;
@@ -99,7 +111,7 @@ export function SignupForm() {
         </form>
         <p className="mt-6 text-center text-sm text-text-secondary">
           Already have an account?{" "}
-          <Link href="/login" className="font-medium text-constory-blue hover:underline">
+          <Link href={redirectTo ? `/login?redirectTo=${encodeURIComponent(redirectTo)}` : "/login"} className="font-medium text-constory-blue hover:underline">
             Log in
           </Link>
         </p>
