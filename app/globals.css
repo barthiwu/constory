@@ -8,13 +8,17 @@
   --color-blue-light: #eaf4ff;
 
   /* Neutrals */
-  --color-app-background: #f8f9fb;
+  /* Page background sits a shade below pure white -- keeps `--color-surface`
+     (cards, at true white) visibly distinct instead of the whole page
+     reading as one flat bright field. Tuned down from #f8f9fb -> #eef0f3
+     per user feedback that light mode felt too bright/glary. */
+  --color-app-background: #eef0f3;
   --color-surface: #ffffff;
-  --color-surface-secondary: #f1f3f6;
+  --color-surface-secondary: #e8eaef;
   --color-text-primary: #111827;
   --color-text-secondary: #667085;
   --color-text-muted: #98a2b3;
-  --color-border: #e7e9ee;
+  --color-border: #dfe2e8;
 
   /* Semantic (status) */
   --color-success: #12b76a;

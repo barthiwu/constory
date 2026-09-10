@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
+import { PostHoverPreview } from "@/components/calendar/post-hover-preview";
 import { getMonthGridDates, WEEKDAY_LABELS } from "@/lib/calendar-grid";
 import { cn } from "@/lib/utils";
 import type { CalendarPost, ContentPillar } from "@/types/database";
@@ -96,15 +97,15 @@ export function MonthView({
                     {dayPosts.slice(0, MAX_VISIBLE_PER_DAY).map((post) => {
                       const pillar = post.content_pillar_id ? pillarById.get(post.content_pillar_id) : undefined;
                       return (
-                        <button
-                          key={post.id}
-                          onClick={() => onOpenPost(post)}
-                          title={pillar ? `${post.title} — ${pillar.name}` : post.title}
-                          className="flex w-full items-center gap-1 rounded border border-border bg-app-background px-1.5 py-1 text-left text-xs hover:border-constory-blue hover:bg-blue-light"
-                        >
-                          <PlatformIcon platform={post.platform} />
-                          <span className="min-w-0 flex-1 truncate text-text-primary">{post.title}</span>
-                        </button>
+                        <PostHoverPreview key={post.id} post={post} pillar={pillar}>
+                          <button
+                            onClick={() => onOpenPost(post)}
+                            className="flex w-full items-center gap-1 rounded border border-border bg-app-background px-1.5 py-1 text-left text-xs hover:border-constory-blue hover:bg-blue-light"
+                          >
+                            <PlatformIcon platform={post.platform} />
+                            <span className="min-w-0 flex-1 truncate text-text-primary">{post.title}</span>
+                          </button>
+                        </PostHoverPreview>
                       );
                     })}
                     {dayPosts.length > MAX_VISIBLE_PER_DAY && (

@@ -5,6 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
+import { PostHoverPreview } from "@/components/calendar/post-hover-preview";
 import { getWeekDates } from "@/lib/calendar-grid";
 import { formatDateShort } from "@/lib/utils";
 import { cn } from "@/lib/utils";
@@ -70,21 +71,22 @@ export function WeekView({
                 {dayPosts.map((post) => {
                   const pillar = post.content_pillar_id ? pillarById.get(post.content_pillar_id) : undefined;
                   return (
-                    <button
-                      key={post.id}
-                      onClick={() => onOpenPost(post)}
-                      className="grid grid-cols-1 gap-1 rounded-md border border-border bg-app-background p-2 text-left hover:border-constory-blue hover:bg-blue-light"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <PlatformIcon platform={post.platform} />
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">{post.title}</span>
-                      </div>
-                      {pillar && (
-                        <Badge variant="blue" className="max-w-full text-[10px]">
-                          <span className="min-w-0 truncate">{pillar.name}</span>
-                        </Badge>
-                      )}
-                    </button>
+                    <PostHoverPreview key={post.id} post={post} pillar={pillar}>
+                      <button
+                        onClick={() => onOpenPost(post)}
+                        className="grid w-full grid-cols-1 gap-1 rounded-md border border-border bg-app-background p-2 text-left hover:border-constory-blue hover:bg-blue-light"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <PlatformIcon platform={post.platform} />
+                          <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-primary">{post.title}</span>
+                        </div>
+                        {pillar && (
+                          <Badge variant="blue" className="max-w-full text-[10px]">
+                            <span className="min-w-0 truncate">{pillar.name}</span>
+                          </Badge>
+                        )}
+                      </button>
+                    </PostHoverPreview>
                   );
                 })}
                 {dayPosts.length === 0 && <p className="text-xs text-text-muted">No content</p>}

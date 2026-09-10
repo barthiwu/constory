@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
-import { Moon } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const emptySubscribe = () => () => {};
@@ -46,7 +46,7 @@ export function ThemeToggle() {
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-constory-blue focus-visible:ring-offset-2 focus-visible:ring-offset-app-background",
       )}
     >
-      <Moon className={cn("h-5 w-5", isDark && "fill-current")} aria-hidden="true" />
+      {isDark ? <Sun className="h-5 w-5" aria-hidden="true" /> : <Moon className="h-5 w-5" aria-hidden="true" />}
     </button>
   );
 }
