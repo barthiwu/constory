@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { resetPasswordSchema, type ResetPasswordInput } from "@/lib/validations/auth";
 import { resetPasswordAction } from "@/app/(auth)/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 
@@ -42,18 +42,16 @@ export function ResetPasswordForm() {
             hint={!errors.password ? "At least 8 characters, with a letter and a number." : undefined}
             required
           >
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               invalid={!!errors.password}
               {...register("password")}
             />
           </FormField>
           <FormField label="Confirm new password" htmlFor="confirmPassword" error={errors.confirmPassword?.message} required>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               autoComplete="new-password"
               invalid={!!errors.confirmPassword}
               {...register("confirmPassword")}

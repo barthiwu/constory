@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
@@ -239,10 +240,10 @@ export function SettingsView({
         </CardHeader>
         <CardContent className="grid gap-4 sm:max-w-md">
           <FormField label="New password" htmlFor="settings-password" error={passwordError ?? undefined}>
-            <Input id="settings-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            <PasswordInput id="settings-password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </FormField>
           <FormField label="Confirm new password" htmlFor="settings-confirm-password">
-            <Input id="settings-confirm-password" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
+            <PasswordInput id="settings-confirm-password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} />
           </FormField>
           <Button onClick={handleChangePassword} loading={savingPassword} disabled={!password} className="justify-self-start">
             Update password

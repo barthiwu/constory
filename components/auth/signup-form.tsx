@@ -8,6 +8,7 @@ import { signupSchema, type SignupInput } from "@/lib/validations/auth";
 import { signupAction } from "@/app/(auth)/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 
@@ -70,18 +71,16 @@ export function SignupForm() {
             hint={!errors.password ? "At least 8 characters, with a letter and a number." : undefined}
             required
           >
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="new-password"
               invalid={!!errors.password}
               {...register("password")}
             />
           </FormField>
           <FormField label="Confirm password" htmlFor="confirmPassword" error={errors.confirmPassword?.message} required>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               autoComplete="new-password"
               invalid={!!errors.confirmPassword}
               {...register("confirmPassword")}

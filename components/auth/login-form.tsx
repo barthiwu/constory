@@ -9,6 +9,7 @@ import { loginSchema, type LoginInput } from "@/lib/validations/auth";
 import { loginAction } from "@/app/(auth)/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/layout/form-field";
 
@@ -49,9 +50,8 @@ export function LoginForm() {
             <Input id="email" type="email" autoComplete="email" invalid={!!errors.email} {...register("email")} />
           </FormField>
           <FormField label="Password" htmlFor="password" error={errors.password?.message} required>
-            <Input
+            <PasswordInput
               id="password"
-              type="password"
               autoComplete="current-password"
               invalid={!!errors.password}
               {...register("password")}
