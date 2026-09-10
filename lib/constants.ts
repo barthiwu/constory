@@ -19,6 +19,30 @@ export const VOICE_OPTIONS = [
   { value: "premium", label: "Premium" },
 ] as const;
 
+export const INDUSTRY_OPTIONS = [
+  "Interior Design & Home",
+  "Fashion & Apparel",
+  "Beauty & Cosmetics",
+  "Health & Wellness",
+  "Fitness & Sports",
+  "Food & Beverage",
+  "Restaurants & Hospitality",
+  "Travel & Tourism",
+  "Real Estate",
+  "Construction & Architecture",
+  "Retail & E-commerce",
+  "Technology & SaaS",
+  "Marketing & Advertising",
+  "Consulting & Professional Services",
+  "Finance & Insurance",
+  "Education & Coaching",
+  "Nonprofit & Community",
+  "Entertainment & Media",
+  "Automotive",
+  "Legal Services",
+  "Other",
+] as const;
+
 export const PLATFORM_OPTIONS = [
   { value: "instagram", label: "Instagram" },
   { value: "facebook", label: "Facebook" },

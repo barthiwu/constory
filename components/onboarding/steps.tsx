@@ -9,7 +9,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { FormField } from "@/components/layout/form-field";
-import { GOAL_OPTIONS, VOICE_OPTIONS, PLATFORM_OPTIONS, goalLabel, platformLabel } from "@/lib/constants";
+import { GOAL_OPTIONS, VOICE_OPTIONS, PLATFORM_OPTIONS, INDUSTRY_OPTIONS, goalLabel, platformLabel } from "@/lib/constants";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { createProductAction, updateProductAction, deleteProductAction } from "@/app/app/(shell)/brand/actions";
 import type { OnboardingState } from "@/components/onboarding/onboarding-wizard";
@@ -31,6 +32,15 @@ function StepHeading({ title, description }: { title: string; description: strin
 }
 
 export function StepWorkspace({ state, update, errors }: StepProps) {
+  // Radix's Select can't represent "not one of these options" on its own, so
+  // picking "Other" swaps it out for a free-text input instead -- both write
+  // to the same `industry` field, just one at a time. A workspace whose
+  // industry doesn't match any listed option (e.g. it was free-typed before
+  // this list existed) starts in the "Other" text input, pre-filled with
+  // its existing value, rather than silently discarding it.
+  const isKnownIndustry = (INDUSTRY_OPTIONS as readonly string[]).includes(state.industry) && state.industry !== "Other";
+  const [showOtherIndustry, setShowOtherIndustry] = useState(!isKnownIndustry && state.industry !== "");
+
   return (
     <div>
       <StepHeading title="Let's set up your workspace" description="This is where your brand's strategy and content will live." />
@@ -39,7 +49,50 @@ export function StepWorkspace({ state, update, errors }: StepProps) {
           <Input id="ob-name" value={state.name} onChange={(e) => update("name", e.target.value)} placeholder="Acme Studio" />
         </FormField>
         <FormField label="Industry" htmlFor="ob-industry" error={errors?.industry} hint="Optional">
-          <Input id="ob-industry" value={state.industry} onChange={(e) => update("industry", e.target.value)} placeholder="e.g. Skincare, SaaS, Coaching" />
+          {showOtherIndustry ? (
+            <div className="grid gap-1.5">
+              <Input
+                id="ob-industry"
+                value={state.industry}
+                onChange={(e) => update("industry", e.target.value)}
+                placeholder="Tell us your industry"
+                autoFocus
+              />
+              <button
+                type="button"
+                className="justify-self-start text-xs text-constory-blue hover:underline"
+                onClick={() => {
+                  setShowOtherIndustry(false);
+                  update("industry", "");
+                }}
+              >
+                Choose from list instead
+              </button>
+            </div>
+          ) : (
+            <Select
+              value={state.industry || undefined}
+              onValueChange={(v) => {
+                if (v === "Other") {
+                  setShowOtherIndustry(true);
+                  update("industry", "");
+                } else {
+                  update("industry", v);
+                }
+              }}
+            >
+              <SelectTrigger id="ob-industry">
+                <SelectValue placeholder="Select an industry" />
+              </SelectTrigger>
+              <SelectContent>
+                {INDUSTRY_OPTIONS.map((i) => (
+                  <SelectItem key={i} value={i}>
+                    {i}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </FormField>
         <FormField label="Website" htmlFor="ob-website" error={errors?.website} hint="Optional">
           <Input id="ob-website" value={state.website} onChange={(e) => update("website", e.target.value)} placeholder="yourbrand.com" />
