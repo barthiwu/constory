@@ -30,8 +30,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
-import { initials, formatDate } from "@/lib/utils";
+import { initials } from "@/lib/utils";
 import type { InviteRole, Role } from "@/types/database";
+
+function formatInviteDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 import {
   inviteMemberAction,
   revokeInviteAction,
@@ -259,8 +265,8 @@ export function TeamView({
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium text-text-primary">{invite.email}</p>
                   <p className="truncate text-xs text-text-muted">
-                    Invited {formatDate(invite.createdAt)}
-                    {invite.invitedByName ? ` by ${invite.invitedByName}` : ""} &middot; expires {formatDate(invite.expiresAt)}
+                    Invited {formatInviteDate(invite.createdAt)}
+                    {invite.invitedByName ? ` by ${invite.invitedByName}` : ""} &middot; expires {formatInviteDate(invite.expiresAt)}
                   </p>
                 </div>
                 <Badge variant={ROLE_BADGE_VARIANT[invite.role]}>{ROLE_LABEL[invite.role]}</Badge>
