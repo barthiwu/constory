@@ -24,7 +24,7 @@ export interface CheckoutResult {
 }
 
 export interface BillingProvider {
-  readonly name: "none" | "manual" | "paystack";
+  readonly name: "none" | "manual" | "paystack" | "stripe";
   /**
    * Starts a plan purchase/change. `email` is required for providers that
    * need it to create a checkout session (Paystack); providers that never

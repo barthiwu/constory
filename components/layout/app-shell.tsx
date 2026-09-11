@@ -6,6 +6,7 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NavLinks } from "@/components/layout/nav-links";
 import { WorkspaceSwitcher } from "@/components/layout/workspace-switcher";
 import { UserMenu } from "@/components/layout/user-menu";
+import { NotificationBell } from "@/components/layout/notification-bell";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -51,10 +52,14 @@ export function AppShell({ workspaces, activeWorkspaceId, profile, children }: A
 
   const sidebarInner = (onNavigate?: () => void) => (
     <div className="flex h-full flex-col gap-4 p-4">
-      <div className={cn("flex items-center gap-2", collapsed && !onNavigate && "justify-center")}>
+      <div className={cn("flex items-center gap-2", collapsed && !onNavigate ? "justify-center" : "justify-between")}>
         <Link href="/app/dashboard" className="text-[26.1px] font-semibold tracking-tight text-constory-blue">
           {collapsed && !onNavigate ? "C" : "Constory"}
         </Link>
+        {/* Only in the true desktop sidebar — the mobile Sheet's copy of this
+            header would otherwise duplicate the bell already in the fixed
+            mobile header bar below. */}
+        {!onNavigate && !collapsed && <NotificationBell />}
       </div>
       <WorkspaceSwitcher workspaces={workspaces} activeWorkspaceId={activeWorkspaceId} collapsed={collapsed && !onNavigate} />
       <NavLinks collapsed={collapsed && !onNavigate} onNavigate={onNavigate} />
@@ -101,7 +106,7 @@ export function AppShell({ workspaces, activeWorkspaceId, profile, children }: A
           <Link href="/app/dashboard" className="text-[23.2px] font-semibold tracking-tight text-constory-blue">
             Constory
           </Link>
-          <div className="w-9" aria-hidden="true" />
+          <NotificationBell />
         </header>
 
         <main className="flex-1 p-4 sm:p-6 md:p-8">

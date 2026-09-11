@@ -198,7 +198,7 @@ export type AiGeneration = {
 export type PlanId = "free" | "creator" | "pro";
 export type SubscriptionStatus = "active" | "trialing" | "past_due" | "cancelled" | "expired";
 export type BillingInterval = "monthly" | "quarterly" | "annual";
-export type BillingProviderName = "none" | "manual" | "paystack";
+export type BillingProviderName = "none" | "manual" | "paystack" | "stripe";
 export type AIActionType =
   | "generate_post"
   | "regenerate_post"
@@ -264,12 +264,49 @@ export type BillingEventStatus = "processed" | "ignored" | "error";
 
 export type BillingEvent = {
   id: string;
-  provider: "paystack";
+  provider: "paystack" | "stripe";
   provider_event_id: string;
   event_type: string;
   owner_id: string | null;
   status: BillingEventStatus;
   detail: string | null;
+  created_at: string;
+};
+
+// =============================================================================
+// Notifications — in-app feed + per-user email/in-app preferences (see
+// supabase/migrations/0023_notifications.sql).
+// =============================================================================
+
+export type NotificationType = "low_credits" | "scheduled_post_reminder" | "weekly_digest";
+
+export type Notification = {
+  id: string;
+  user_id: string;
+  workspace_id: string | null;
+  type: NotificationType;
+  title: string;
+  body: string;
+  link: string | null;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type NotificationPreferences = {
+  user_id: string;
+  email_low_credits: boolean;
+  email_scheduled_posts: boolean;
+  email_weekly_digest: boolean;
+  inapp_low_credits: boolean;
+  inapp_scheduled_posts: boolean;
+  inapp_weekly_digest: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NotificationLog = {
+  id: string;
+  event_key: string;
   created_at: string;
 };
 
@@ -406,6 +443,47 @@ export type Database = {
         Row: BillingEvent;
         Insert: Partial<BillingEvent> & { provider_event_id: string; event_type: string };
         Update: Partial<BillingEvent>;
+        Relationships: [];
+      };
+      notification_preferences: {
+        Row: NotificationPreferences;
+        Insert: Partial<NotificationPreferences> & { user_id: string };
+        Update: Partial<NotificationPreferences>;
+        Relationships: [
+          {
+            foreignKeyName: "notification_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      notifications: {
+        Row: Notification;
+        Insert: Partial<Notification> & { user_id: string; type: NotificationType; title: string; body: string };
+        Update: Partial<Notification>;
+        Relationships: [
+          {
+            foreignKeyName: "notifications_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "notifications_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      notification_log: {
+        Row: NotificationLog;
+        Insert: Partial<NotificationLog> & { event_key: string };
+        Update: Partial<NotificationLog>;
         Relationships: [];
       };
     };

@@ -87,6 +87,18 @@ export async function loginAction(
     return { error: friendlyAuthError(error.message) };
   }
 
+  // A password match alone isn't enough for an account with two-factor
+  // authentication enabled — signInWithPassword grants an aal1 session
+  // regardless, and only mfa.verify() (completed on /login/mfa) can raise it
+  // to aal2. nextLevel === 'aal2' means the account HAS a verified TOTP
+  // factor; currentLevel !== nextLevel means this particular session hasn't
+  // cleared it yet.
+  const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+  if (aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2") {
+    const safeRedirect = getSafeRedirectPath(redirectTo);
+    redirect(`/login/mfa?redirectTo=${encodeURIComponent(safeRedirect)}`);
+  }
+
   redirect(getSafeRedirectPath(redirectTo));
 }
 
@@ -139,4 +151,36 @@ export async function resetPasswordAction(input: ResetPasswordInput): Promise<Ac
   }
 
   redirect("/login?reset=success");
+}
+
+/**
+ * Completes the second factor of a login that loginAction routed to
+ * /login/mfa (see the AAL check there). The user already has a valid aal1
+ * session at this point — this only raises it to aal2, it doesn't
+ * authenticate them from scratch.
+ */
+export async function verifyMfaChallengeAction(code: string, redirectTo?: string | null): Promise<ActionResult> {
+  const supabase = await createClient();
+
+  const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+  const factor = factorsError ? null : factors?.totp.find((f) => f.status === "verified");
+  if (!factor) {
+    return { error: "No two-factor authenticator found on this account. Please log in again." };
+  }
+
+  const { data: challenge, error: challengeError } = await supabase.auth.mfa.challenge({ factorId: factor.id });
+  if (challengeError || !challenge) {
+    return { error: "Couldn't verify that code. Please try again." };
+  }
+
+  const { error: verifyError } = await supabase.auth.mfa.verify({
+    factorId: factor.id,
+    challengeId: challenge.id,
+    code: code.trim(),
+  });
+  if (verifyError) {
+    return { error: "That code didn't match. Check your authenticator app and try again." };
+  }
+
+  redirect(getSafeRedirectPath(redirectTo));
 }

@@ -11,6 +11,7 @@ import type {
 import { getPlanCreditAllowance, getPlanEntitlements, nextPeriodEnd } from "@/lib/billing/plans";
 import type { AIActionType } from "@/lib/billing/credit-costs";
 import { createAdminClient } from "@/lib/supabase/server";
+import { notifyLowCreditsIfNeeded } from "@/services/notification-service";
 import { createSubscription as createPaystackSubscription } from "@/lib/billing/paystack-client";
 import { getPaystackPlanCode } from "@/lib/billing/paystack-plan-codes";
 
@@ -315,8 +316,20 @@ export async function consumeAiCredits(
     p_credits: credits,
   });
   if (error) throw error;
-  const row = data?.[0];
-  return row ?? { ok: false, remaining: 0, monthly_allocation: 0, reason: "unknown_error" };
+  const row = data?.[0] ?? { ok: false, remaining: 0, monthly_allocation: 0, reason: "unknown_error" };
+
+  // Fire-and-checked (awaited, but internally best-effort — see that
+  // function's comment) low-credit notification. Only on a successful spend,
+  // and only ever resolves to an actual send/insert once per credit period.
+  if (row.ok) {
+    const ownerId = await getWorkspaceOwnerId(supabase, workspaceId);
+    if (ownerId) {
+      const admin = createAdminClient();
+      await notifyLowCreditsIfNeeded(admin, ownerId, row.remaining, row.monthly_allocation);
+    }
+  }
+
+  return row;
 }
 
 export async function listRecentUsage(supabase: DB, ownerId: string, limit = 20): Promise<AiUsageLedgerRow[]> {
@@ -503,6 +516,7 @@ export async function activatePaidPlanFromPayment(
   planId: PlanId,
   billingInterval: BillingInterval,
   providerIds: { customerCode?: string | null; subscriptionCode?: string | null; subscriptionToken?: string | null; authorizationCode?: string | null },
+  provider: "paystack" | "stripe" = "paystack",
 ): Promise<void> {
   const now = new Date();
   const periodEnd = nextPeriodEnd("monthly", now);
@@ -519,7 +533,7 @@ export async function activatePaidPlanFromPayment(
     // turned around and upgraded again before it took effect).
     pending_plan_id: null,
     pending_billing_interval: null,
-    provider: "paystack",
+    provider,
   };
   if (providerIds.customerCode) subscriptionUpdate.provider_customer_id = providerIds.customerCode;
   if (providerIds.subscriptionCode) subscriptionUpdate.provider_subscription_id = providerIds.subscriptionCode;
@@ -556,7 +570,7 @@ export async function markSubscriptionCancelledByProvider(adminSupabase: DB, own
 }
 
 export interface RecordBillingEventInput {
-  provider: "paystack";
+  provider: "paystack" | "stripe";
   providerEventId: string;
   eventType: string;
   ownerId: string | null;

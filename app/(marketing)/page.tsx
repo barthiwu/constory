@@ -115,7 +115,7 @@ export default function MarketingPage() {
       <footer className="border-t border-border bg-surface py-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-4 text-sm text-text-secondary sm:flex-row sm:px-6">
           <span>© {new Date().getFullYear()} Constory. All rights reserved.</span>
-          <div className="flex gap-4">
+          <div className="flex flex-wrap justify-center gap-4">
             <Link href="/pricing" className="hover:text-text-primary">
               Pricing
             </Link>
@@ -124,6 +124,15 @@ export default function MarketingPage() {
             </Link>
             <Link href="/signup" className="hover:text-text-primary">
               Sign up
+            </Link>
+            <Link href="/legal/terms" className="hover:text-text-primary">
+              Terms
+            </Link>
+            <Link href="/legal/privacy" className="hover:text-text-primary">
+              Privacy
+            </Link>
+            <Link href="/legal/refund" className="hover:text-text-primary">
+              Refunds
             </Link>
           </div>
         </div>

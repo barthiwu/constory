@@ -54,8 +54,25 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(redirectUrl);
   }
 
-  if (user && (pathname === "/login" || pathname === "/signup")) {
-    return NextResponse.redirect(new URL("/app/dashboard", request.url));
+  if (user) {
+    // A password sign-in alone only ever grants aal1 — an account with a
+    // verified TOTP factor (nextLevel === 'aal2') must also complete
+    // /login/mfa before its session counts as fully authenticated. This is
+    // enforced here (not just in loginAction's redirect) so that an
+    // existing aal1-only session can never reach /app by any other route,
+    // e.g. a bookmark or a tab left open from before 2FA was turned on.
+    const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+    const needsMfa = !!aal && aal.nextLevel === "aal2" && aal.currentLevel !== "aal2";
+
+    if (needsMfa && pathname.startsWith("/app")) {
+      const redirectUrl = new URL("/login/mfa", request.url);
+      redirectUrl.searchParams.set("redirectTo", pathname + search);
+      return NextResponse.redirect(redirectUrl);
+    }
+
+    if (!needsMfa && (pathname === "/login" || pathname === "/signup" || pathname === "/login/mfa")) {
+      return NextResponse.redirect(new URL("/app/dashboard", request.url));
+    }
   }
 
   return response;
