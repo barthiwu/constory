@@ -20,7 +20,18 @@ export default async function CalendarsPage() {
   if (!workspace) return null;
 
   const calendars = await getCalendars(supabase, workspace.id);
-  const counts = await Promise.all(calendars.map((c) => getPosts(supabase, c.id).then((posts) => posts.length)));
+  const postsByCalendar = await Promise.all(calendars.map((c) => getPosts(supabase, c.id)));
+  const counts = postsByCalendar.map((posts) => posts.length);
+  // The platforms shown on each card are what's actually scheduled in it
+  // right now, not the calendar's static setup config (`selected_platforms`
+  // is only ever an AI-generation hint from creation time and can drift from
+  // reality the moment a post targeting a different platform gets added) --
+  // falls back to the setup config only for a calendar with no posts yet,
+  // since there's nothing real to summarize otherwise.
+  const platformsByCalendar = postsByCalendar.map((posts, i) => {
+    const actual = Array.from(new Set(posts.map((p) => p.platform)));
+    return actual.length > 0 ? actual : calendars[i].selected_platforms;
+  });
 
   return (
     <div className="grid gap-6">
@@ -64,10 +75,10 @@ export default async function CalendarsPage() {
                 </CardHeader>
                 <CardContent className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="blue">{counts[i]} posts</Badge>
-                  {c.selected_platforms.slice(0, 3).map((p) => (
+                  {platformsByCalendar[i].slice(0, 3).map((p) => (
                     <Badge key={p}>{pLabel(p)}</Badge>
                   ))}
-                  {c.selected_platforms.length > 3 && <Badge>+{c.selected_platforms.length - 3}</Badge>}
+                  {platformsByCalendar[i].length > 3 && <Badge>+{platformsByCalendar[i].length - 3}</Badge>}
                 </CardContent>
               </Card>
             </Link>
