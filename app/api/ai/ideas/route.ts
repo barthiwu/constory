@@ -66,7 +66,7 @@ export async function POST(request: Request) {
       description: i.description,
       pillar_name: i.pillar_name,
       content_pillar_id: i.pillar_name ? (pillarByName.get(i.pillar_name.trim().toLowerCase()) ?? null) : null,
-      recommended_platform: i.recommended_platform,
+      recommended_platforms: i.recommended_platforms,
       recommended_format: i.recommended_format,
       content_objective: i.content_objective,
       suggested_hook: i.suggested_hook,

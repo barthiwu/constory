@@ -15,10 +15,14 @@ Rules:
   different angles or subjects.
 - Each idea needs a short, specific title and a 1-3 sentence description of the angle and why it fits the
   audience.
-- For every idea also suggest: a recommended_platform (one of the brand's selected platforms if any are given,
-  otherwise your best judgment), a recommended_format appropriate to that platform, a short content_objective
-  (e.g. "Educate", "Engage", "Promote", "Generate leads", "Build authority"), and an optional suggested_hook — a
-  one-line opening/angle that would stop the scroll. Use null for any of these you genuinely can't recommend.
+- For every idea also suggest: recommended_platforms — an array of one or more platforms this idea genuinely
+  suits (from the brand's selected platforms if any are given, otherwise your best judgment). Most ideas fit more
+  than one platform reasonably well; only recommend a single platform when the idea is genuinely
+  platform-specific (e.g. a format only one platform supports). Use an empty array only if truly no platform
+  fits. Also suggest a recommended_format appropriate to the primary platform, a short content_objective (e.g.
+  "Educate", "Engage", "Promote", "Generate leads", "Build authority"), and an optional suggested_hook — a
+  one-line opening/angle that would stop the scroll. Use null for format/objective/hook if you genuinely can't
+  recommend one.
 - recommended_format must be exactly one of: ${CONTENT_FORMAT_OPTIONS.map((f) => `"${f}"`).join(", ")}. Pick
   whichever fits the idea best -- never invent a different label.
 - Ground every idea in the actual current date given in the context below — never propose "trends", "this year"
@@ -44,7 +48,7 @@ export async function generateIdeas(ctx: AIContext, params: GenerateIdeasParams)
       : "";
 
   const focusLine = params.focusPillarName ? `\n\nFocus specifically on the "${params.focusPillarName}" pillar.` : "";
-  const platformLine = params.platform ? `\n\nFocus recommended_platform on "${params.platform}" for every idea.` : "";
+  const platformLine = params.platform ? `\n\nEvery idea's recommended_platforms must include "${params.platform}".` : "";
   const objectiveLine = params.objective ? `\n\nEvery idea should serve this content objective: "${params.objective}".` : "";
   const formatLine = params.format ? `\n\nFocus recommended_format on "${params.format}" for every idea.` : "";
 

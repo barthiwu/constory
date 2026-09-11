@@ -171,7 +171,7 @@ export type ContentIdea = {
   description: string;
   source: IdeaSource;
   status: IdeaStatus;
-  recommended_platform: string | null;
+  recommended_platforms: string[];
   recommended_format: string | null;
   content_objective: string | null;
   suggested_hook: string | null;

@@ -11,7 +11,7 @@ function idea(overrides: Partial<ContentIdea>): ContentIdea {
     description: "",
     source: "USER",
     status: "active",
-    recommended_platform: null,
+    recommended_platforms: [],
     recommended_format: null,
     content_objective: null,
     suggested_hook: null,

@@ -32,7 +32,7 @@ export function AddToCalendarDialog({
   const { toast } = useToast();
   const [calendarId, setCalendarId] = useState(calendars[0]?.id ?? "");
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-  const [platforms, setPlatforms] = useState<string[]>(idea?.recommended_platform ? [idea.recommended_platform] : ["instagram"]);
+  const [platforms, setPlatforms] = useState<string[]>(idea?.recommended_platforms?.length ? idea.recommended_platforms : ["instagram"]);
   const [saving, setSaving] = useState(false);
   // This dialog stays mounted between opens (IdeasView toggles `open` rather
   // than remounting it), so re-derive the platform default from the newly
@@ -42,7 +42,7 @@ export function AddToCalendarDialog({
   const [prefilledFor, setPrefilledFor] = useState<string | null>(idea?.id ?? null);
   if (open && idea && idea.id !== prefilledFor) {
     setPrefilledFor(idea.id);
-    setPlatforms(idea.recommended_platform ? [idea.recommended_platform] : ["instagram"]);
+    setPlatforms(idea.recommended_platforms.length ? idea.recommended_platforms : ["instagram"]);
   }
 
   const activeCalendar = calendars.find((c) => c.id === calendarId);

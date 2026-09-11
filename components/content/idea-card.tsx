@@ -43,7 +43,11 @@ export function IdeaCard({
           <Badge variant={idea.status === "used" ? "success" : idea.status === "archived" ? "default" : "blue"}>
             {STATUS_LABEL[idea.status]}
           </Badge>
-          {idea.recommended_platform && <Badge variant="outline">{platformLabel(idea.recommended_platform)}</Badge>}
+          {idea.recommended_platforms.map((p) => (
+            <Badge key={p} variant="outline">
+              {platformLabel(p)}
+            </Badge>
+          ))}
           {idea.recommended_format && <Badge variant="outline">{idea.recommended_format}</Badge>}
           {idea.content_objective && <Badge variant="outline">{idea.content_objective}</Badge>}
         </div>

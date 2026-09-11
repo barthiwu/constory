@@ -11,7 +11,8 @@ import { DiscardChangesDialog } from "@/components/layout/discard-changes-dialog
 import { useToast } from "@/components/ui/toast";
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import { createIdeaAction, updateIdeaAction } from "@/app/app/(shell)/ideas/actions";
-import { PLATFORM_OPTIONS, CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
+import { PlatformMultiSelect } from "@/components/content/platform-multi-select";
 import type { ContentIdea, ContentPillar } from "@/types/database";
 
 interface IdeaDialogProps {
@@ -27,14 +28,14 @@ interface FormState {
   title: string;
   description: string;
   pillarId: string;
-  platform: string;
+  platforms: string[];
   format: string;
   objective: string;
   hook: string;
 }
 
 function emptyState(): FormState {
-  return { title: "", description: "", pillarId: "none", platform: "none", format: "none", objective: "", hook: "" };
+  return { title: "", description: "", pillarId: "none", platforms: [], format: "none", objective: "", hook: "" };
 }
 
 function stateFromIdea(idea: ContentIdea): FormState {
@@ -42,7 +43,7 @@ function stateFromIdea(idea: ContentIdea): FormState {
     title: idea.title,
     description: idea.description,
     pillarId: idea.content_pillar_id ?? "none",
-    platform: idea.recommended_platform ?? "none",
+    platforms: idea.recommended_platforms,
     format: idea.recommended_format ?? "none",
     objective: idea.content_objective ?? "",
     hook: idea.suggested_hook ?? "",
@@ -98,7 +99,7 @@ export function IdeaDialog({ workspaceId, pillars, idea, open, onOpenChange, onS
       title: form.title,
       description: form.description,
       content_pillar_id: form.pillarId === "none" ? null : form.pillarId,
-      recommended_platform: form.platform === "none" ? null : form.platform,
+      recommended_platforms: form.platforms,
       recommended_format: form.format === "none" ? null : form.format,
       content_objective: form.objective.trim() || null,
       suggested_hook: form.hook.trim() || null,
@@ -152,20 +153,12 @@ export function IdeaDialog({ workspaceId, pillars, idea, open, onOpenChange, onS
             <div className="grid gap-4 border-t border-border pt-4">
               <p className="text-xs font-medium uppercase tracking-wide text-text-muted">Content details (optional)</p>
               <div className="grid gap-4 sm:grid-cols-2">
-                <FormField label="Recommended platform" htmlFor="idea-platform">
-                  <Select value={form.platform} onValueChange={(v) => update("platform", v)}>
-                    <SelectTrigger id="idea-platform">
-                      <SelectValue placeholder="None" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">None</SelectItem>
-                      {PLATFORM_OPTIONS.map((p) => (
-                        <SelectItem key={p.value} value={p.value}>
-                          {p.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <FormField label="Recommended platforms" htmlFor="idea-platforms">
+                  <PlatformMultiSelect
+                    ariaLabel="Recommended platforms"
+                    value={form.platforms}
+                    onChange={(v) => update("platforms", v)}
+                  />
                 </FormField>
                 <FormField label="Recommended format" htmlFor="idea-format">
                   <Select value={form.format} onValueChange={(v) => update("format", v)}>

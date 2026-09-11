@@ -11,7 +11,8 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { EmptyState } from "@/components/layout/empty-state";
 import { ErrorState } from "@/components/layout/error-state";
 import { useToast } from "@/components/ui/toast";
-import { PLATFORM_OPTIONS, CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
+import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
+import { PlatformMultiSelect } from "@/components/content/platform-multi-select";
 import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   AlertDialog,
@@ -43,7 +44,7 @@ interface DraftIdea {
   title: string;
   description: string;
   content_pillar_id: string | null;
-  recommended_platform: string | null;
+  recommended_platforms: string[];
   recommended_format: string | null;
   content_objective: string | null;
   suggested_hook: string | null;
@@ -146,7 +147,7 @@ export function IdeasView({
         title: d.title,
         description: d.description,
         content_pillar_id: d.content_pillar_id,
-        recommended_platform: d.recommended_platform,
+        recommended_platforms: d.recommended_platforms,
         recommended_format: d.recommended_format,
         content_objective: d.content_objective,
         suggested_hook: d.suggested_hook,
@@ -239,23 +240,13 @@ export function IdeasView({
                   </Select>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="grid gap-1">
-                      <label className="text-xs text-text-muted">Platform</label>
-                      <Select
-                        value={d.recommended_platform ?? "none"}
-                        onValueChange={(v) => updateDraftIdea(i, { recommended_platform: v === "none" ? null : v })}
-                      >
-                        <SelectTrigger aria-label="Recommended platform" className="h-8 text-xs">
-                          <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          {PLATFORM_OPTIONS.map((p) => (
-                            <SelectItem key={p.value} value={p.value}>
-                              {p.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <label className="text-xs text-text-muted">Platforms</label>
+                      <PlatformMultiSelect
+                        ariaLabel="Recommended platforms"
+                        value={d.recommended_platforms}
+                        onChange={(v) => updateDraftIdea(i, { recommended_platforms: v })}
+                        triggerClassName="h-8 text-xs"
+                      />
                     </div>
                     <div className="grid gap-1">
                       <label className="text-xs text-text-muted">Format</label>

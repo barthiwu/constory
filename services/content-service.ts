@@ -16,7 +16,7 @@ export interface IdeaInput {
   title: string;
   description?: string;
   content_pillar_id?: string | null;
-  recommended_platform?: string | null;
+  recommended_platforms?: string[];
   recommended_format?: string | null;
   content_objective?: string | null;
   suggested_hook?: string | null;
@@ -75,7 +75,7 @@ export async function duplicateIdea(supabase: DB, ideaId: string): Promise<Conte
       title: `${original.title} (Copy)`,
       description: original.description,
       content_pillar_id: original.content_pillar_id,
-      recommended_platform: original.recommended_platform,
+      recommended_platforms: original.recommended_platforms,
       recommended_format: original.recommended_format,
       content_objective: original.content_objective,
       suggested_hook: original.suggested_hook,
@@ -90,7 +90,7 @@ export async function duplicateIdea(supabase: DB, ideaId: string): Promise<Conte
  * Any accepted AI metadata on the idea (format/objective/hook) is carried
  * over as an intelligent default on the new post — never forced, since the
  * user picks `platform` themselves in the Add to Calendar dialog (which
- * itself defaults to idea.recommended_platform) and can change every one of
+ * itself defaults to idea.recommended_platforms) and can change every one of
  * these fields afterward in the post workspace.
  */
 /**

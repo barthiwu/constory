@@ -48,7 +48,11 @@ export const aiIdeaSchema = z.object({
   title: z.string().min(1).max(160),
   description: z.string().min(1).max(600),
   pillar_name: z.string().max(80).nullable(),
-  recommended_platform: z.string().max(40).nullable(),
+  // Zero or more platforms this idea suits — a single idea routinely fits
+  // several (see migration 0025). Empty array means "no particular
+  // platform" rather than null, so the model has one unambiguous way to
+  // say that instead of null-vs-empty-array meaning the same thing.
+  recommended_platforms: z.array(z.string().max(40)).max(6),
   // Constrained to the app's own format vocabulary (lib/constants.ts) --
   // this used to be free-text, so the AI would return values like "video"
   // or "carousel post" that never matched any option in the Format

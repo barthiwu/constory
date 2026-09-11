@@ -6,7 +6,7 @@ const VALID_IDEA = {
   title: "Behind the scenes of our morning prep",
   description: "Show the team setting up before opening — builds trust through transparency.",
   pillar_name: "Community",
-  recommended_platform: "instagram",
+  recommended_platforms: ["instagram"],
   recommended_format: "Short video / Reel",
   content_objective: "Engage",
   suggested_hook: "You've never seen our kitchen like this...",
@@ -18,11 +18,11 @@ describe("aiIdeaSchema", () => {
     expect(result.success).toBe(true);
   });
 
-  it("accepts an idea with every optional metadata field explicitly null", () => {
+  it("accepts an idea with every optional metadata field explicitly null, and an empty platforms array", () => {
     const result = aiIdeaSchema.safeParse({
       ...VALID_IDEA,
       pillar_name: null,
-      recommended_platform: null,
+      recommended_platforms: [],
       recommended_format: null,
       content_objective: null,
       suggested_hook: null,
@@ -31,7 +31,7 @@ describe("aiIdeaSchema", () => {
   });
 
   it("rejects malformed metadata (wrong type for a nullable field)", () => {
-    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platform: 42 });
+    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_format: 42 });
     expect(result.success).toBe(false);
   });
 
@@ -40,13 +40,34 @@ describe("aiIdeaSchema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects a recommended_platform longer than the allowed length", () => {
-    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platform: "x".repeat(41) });
+  it("rejects recommended_platforms that isn't an array", () => {
+    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platforms: "instagram" });
     expect(result.success).toBe(false);
   });
 
-  it("accepts a recommended_platform at the length boundary", () => {
-    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platform: "x".repeat(40) });
+  it("rejects recommended_platforms with more than the allowed number of entries", () => {
+    const result = aiIdeaSchema.safeParse({
+      ...VALID_IDEA,
+      recommended_platforms: ["instagram", "facebook", "linkedin", "tiktok", "x", "other", "one_too_many"],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts recommended_platforms at the entry-count boundary", () => {
+    const result = aiIdeaSchema.safeParse({
+      ...VALID_IDEA,
+      recommended_platforms: ["instagram", "facebook", "linkedin", "tiktok", "x", "other"],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a recommended_platforms entry longer than the allowed length", () => {
+    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platforms: ["x".repeat(41)] });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts a recommended_platforms entry at the length boundary", () => {
+    const result = aiIdeaSchema.safeParse({ ...VALID_IDEA, recommended_platforms: ["x".repeat(40)] });
     expect(result.success).toBe(true);
   });
 
@@ -83,7 +104,7 @@ describe("aiIdeaSchema", () => {
   });
 
   it("rejects a missing (undefined) metadata field rather than silently defaulting it", () => {
-    const withoutPlatform = Object.fromEntries(Object.entries(VALID_IDEA).filter(([key]) => key !== "recommended_platform"));
+    const withoutPlatform = Object.fromEntries(Object.entries(VALID_IDEA).filter(([key]) => key !== "recommended_platforms"));
     const result = aiIdeaSchema.safeParse(withoutPlatform);
     // The AI response contract requires every field to be present (using
     // null for "no recommendation") — zodResponseFormat's structured
