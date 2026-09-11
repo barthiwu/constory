@@ -11,7 +11,7 @@ import { FormField } from "@/components/layout/form-field";
 import { EmptyState } from "@/components/layout/empty-state";
 import { useToast } from "@/components/ui/toast";
 import { addIdeaToCalendarAction } from "@/app/app/(shell)/ideas/actions";
-import { platformLabel } from "@/lib/constants";
+import { PLATFORM_OPTIONS, platformLabel } from "@/lib/constants";
 import { CalendarDays } from "lucide-react";
 import type { ContentCalendar, ContentIdea } from "@/types/database";
 
@@ -45,8 +45,12 @@ export function AddToCalendarDialog({
     setPlatforms(idea.recommended_platforms?.length ? idea.recommended_platforms : ["instagram"]);
   }
 
-  const activeCalendar = calendars.find((c) => c.id === calendarId);
-  const platformOptions = activeCalendar?.selected_platforms?.length ? activeCalendar.selected_platforms : ["instagram", "facebook", "linkedin", "tiktok", "x"];
+  // Every platform is always offered here, regardless of which platforms this
+  // calendar was originally set up with (`calendar.selected_platforms` is only
+  // a hint for the AI auto-generation flow, not a hard restriction on what a
+  // specific idea can be posted to) -- an idea can recommend a platform the
+  // calendar wasn't scoped for, and that should still be pickable.
+  const platformOptions = PLATFORM_OPTIONS.map((p) => p.value);
 
   function togglePlatform(p: string, checked: boolean) {
     setPlatforms((prev) => (checked ? [...prev, p] : prev.filter((x) => x !== p)));

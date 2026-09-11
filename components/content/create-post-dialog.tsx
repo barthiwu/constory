@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { FormField } from "@/components/layout/form-field";
 import { useToast } from "@/components/ui/toast";
-import { CONTENT_FORMAT_OPTIONS, platformLabel } from "@/lib/constants";
+import { PLATFORM_OPTIONS, CONTENT_FORMAT_OPTIONS, platformLabel } from "@/lib/constants";
 import { createPostAction } from "@/app/app/(shell)/calendars/actions";
 import type { ContentCalendar, ContentPillar } from "@/types/database";
 
@@ -28,11 +28,18 @@ export function CreatePostDialog({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const platformOptions = calendar.selected_platforms.length > 0 ? calendar.selected_platforms : ["instagram"];
+  // Every platform is always offered here, regardless of which platforms this
+  // calendar was originally set up with -- `calendar.selected_platforms` is
+  // only a hint for the AI auto-generation flow, not a hard restriction on
+  // what a manually-added post can target. Still defaults to the calendar's
+  // own first configured platform (or Instagram) since that's the most
+  // likely choice for a post being added to it.
+  const platformOptions = PLATFORM_OPTIONS.map((p) => p.value);
+  const defaultPlatform = calendar.selected_platforms[0] ?? "instagram";
 
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(calendar.start_date);
-  const [platform, setPlatform] = useState(platformOptions[0]);
+  const [platform, setPlatform] = useState(defaultPlatform);
   const [pillarId, setPillarId] = useState("none");
   const [format, setFormat] = useState<string>("");
   const [brief, setBrief] = useState("");
