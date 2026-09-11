@@ -80,3 +80,26 @@ export function voiceLabel(value: string): string {
 export function platformLabel(value: string): string {
   return PLATFORM_OPTIONS.find((p) => p.value === value)?.label ?? value;
 }
+
+// Each platform's own brand color, as a complete Tailwind background-color
+// class (not a raw hex -- Tailwind's build-time scanner only picks up
+// arbitrary-value classes that appear as literal, complete strings in
+// source, so these must stay whole strings here rather than being
+// constructed at runtime from a hex value). lucide-react no longer ships
+// brand/logo icons, so this stands in for a real logo wherever a platform
+// needs to be visually distinct at a glance (the calendar's colored initial
+// badges, platform badges on the Calendars list page) -- single source of
+// truth so every surface agrees on the same color per platform.
+export const PLATFORM_BG_CLASS: Record<string, string> = {
+  instagram: "bg-[#E1306C]",
+  facebook: "bg-[#1877F2]",
+  linkedin: "bg-[#0A66C2]",
+  tiktok: "bg-constory-black",
+  x: "bg-constory-black",
+  other: "bg-text-muted",
+};
+
+/** Solid platform-color badge classes -- white text on that platform's brand color. */
+export function platformBadgeClassName(value: string): string {
+  return `${PLATFORM_BG_CLASS[value] ?? PLATFORM_BG_CLASS.other} text-white border-transparent`;
+}

@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { CalendarDays, Plus } from "lucide-react";
 import { formatDate } from "@/lib/utils";
-import { platformLabel as pLabel } from "@/lib/constants";
+import { platformLabel as pLabel, platformBadgeClassName } from "@/lib/constants";
 
 export const metadata: Metadata = { title: "Calendars — Constory" };
 
@@ -76,7 +76,9 @@ export default async function CalendarsPage() {
                 <CardContent className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="blue">{counts[i]} posts</Badge>
                   {platformsByCalendar[i].slice(0, 3).map((p) => (
-                    <Badge key={p}>{pLabel(p)}</Badge>
+                    <Badge key={p} className={platformBadgeClassName(p)}>
+                      {pLabel(p)}
+                    </Badge>
                   ))}
                   {platformsByCalendar[i].length > 3 && <Badge>+{platformsByCalendar[i].length - 3}</Badge>}
                 </CardContent>
