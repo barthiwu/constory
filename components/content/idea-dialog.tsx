@@ -43,7 +43,7 @@ function stateFromIdea(idea: ContentIdea): FormState {
     title: idea.title,
     description: idea.description,
     pillarId: idea.content_pillar_id ?? "none",
-    platforms: idea.recommended_platforms,
+    platforms: idea.recommended_platforms ?? [],
     format: idea.recommended_format ?? "none",
     objective: idea.content_objective ?? "",
     hook: idea.suggested_hook ?? "",

@@ -42,7 +42,7 @@ export function AddToCalendarDialog({
   const [prefilledFor, setPrefilledFor] = useState<string | null>(idea?.id ?? null);
   if (open && idea && idea.id !== prefilledFor) {
     setPrefilledFor(idea.id);
-    setPlatforms(idea.recommended_platforms.length ? idea.recommended_platforms : ["instagram"]);
+    setPlatforms(idea.recommended_platforms?.length ? idea.recommended_platforms : ["instagram"]);
   }
 
   const activeCalendar = calendars.find((c) => c.id === calendarId);
