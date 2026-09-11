@@ -60,7 +60,7 @@ export default function PrivacyPage() {
         settings. Depending on where you live, you may have additional rights over your personal
         information — such as requesting a copy of it, asking us to correct or delete it, or
         objecting to certain processing. To exercise any of these, contact us at{" "}
-        <strong>[support email]</strong>.
+        <strong>biwuoha@blitzhaus.org</strong>.
       </p>
 
       <h2>7. Notification preferences</h2>
@@ -94,7 +94,7 @@ export default function PrivacyPage() {
       </p>
 
       <h2>12. Contact</h2>
-      <p>Questions about this policy, or requests about your data, can be sent to <strong>[support email]</strong>.</p>
+      <p>Questions about this policy, or requests about your data, can be sent to <strong>biwuoha@blitzhaus.org</strong>.</p>
     </>
   );
 }

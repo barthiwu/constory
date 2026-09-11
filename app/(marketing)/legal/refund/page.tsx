@@ -54,7 +54,7 @@ export default function RefundPage() {
         <li>You are within your first billing period as a first-time paying customer and the plan clearly wasn&apos;t what you expected — contact us within 7 days of the charge.</li>
       </ul>
       <p>
-        To request a refund, contact <strong>[support email]</strong> with your account email and
+        To request a refund, contact <strong>biwuoha@blitzhaus.org</strong> with your account email and
         the reason for the request. We review requests individually and aim to respond within a
         few business days.
       </p>

@@ -2,12 +2,11 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = { title: "Terms of Service — Constory" };
 
-// Placeholders below ([Company Legal Name], [Governing Jurisdiction], the
-// support address) are intentionally marked for Barth to fill in with the
-// actual incorporated entity name/jurisdiction and a real support inbox
-// before this goes live — see the delivery note. Everything else reflects
-// how the product actually works today (plans, credits, Paystack billing,
-// workspaces/teams, AI-generated content) rather than generic boilerplate.
+// Entity name, governing jurisdiction, and support address below are
+// Constory's actual details (Blitz Haus LTD, Nigeria). Everything else
+// reflects how the product actually works today (plans, credits, Paystack
+// billing, workspaces/teams, AI-generated content) rather than generic
+// boilerplate.
 export default function TermsPage() {
   return (
     <>
@@ -16,7 +15,7 @@ export default function TermsPage() {
 
       <p>
         These Terms of Service (&quot;Terms&quot;) govern your access to and use of Constory (the
-        &quot;Service&quot;), operated by <strong>[Company Legal Name]</strong> (&quot;Constory,&quot; &quot;we,&quot;
+        &quot;Service&quot;), operated by <strong>Blitz Haus LTD</strong> (&quot;Constory,&quot; &quot;we,&quot;
         &quot;us&quot;). By creating an account or otherwise using the Service, you agree to these
         Terms. If you are using the Service on behalf of a business or team, you are agreeing on
         that organization&apos;s behalf and confirming you have the authority to do so.
@@ -125,11 +124,11 @@ export default function TermsPage() {
       </p>
 
       <h2>12. Governing law</h2>
-      <p>These Terms are governed by the laws of <strong>[Governing Jurisdiction]</strong>, without regard to its conflict-of-law principles.</p>
+      <p>These Terms are governed by the laws of <strong>Nigeria</strong>, without regard to its conflict-of-law principles.</p>
 
       <h2>13. Contact</h2>
       <p>
-        Questions about these Terms can be sent to <strong>[support email]</strong>.
+        Questions about these Terms can be sent to <strong>biwuoha@blitzhaus.org</strong>.
       </p>
     </>
   );
