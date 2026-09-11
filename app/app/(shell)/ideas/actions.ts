@@ -88,8 +88,9 @@ export async function addIdeaToCalendarAction(
   ideaId: string,
   calendarId: string,
   scheduledDate: string,
-  platform: string,
-): Promise<ActionResult & { postId?: string }> {
+  platforms: string[],
+): Promise<ActionResult & { postIds?: string[] }> {
+  if (platforms.length === 0) return { error: "Select at least one platform." };
   const supabase = await createClient();
   try {
     const { data: idea, error } = await supabase.from("content_ideas").select("*").eq("id", ideaId).single();
@@ -97,10 +98,10 @@ export async function addIdeaToCalendarAction(
     const calendar = await getCalendar(supabase, calendarId);
     if (!calendar) return { error: "That calendar couldn't be found." };
     if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
-    const post = await addIdeaToCalendar(supabase, idea, calendarId, scheduledDate, platform);
+    const posts = await addIdeaToCalendar(supabase, idea, calendarId, scheduledDate, platforms);
     revalidatePath("/app/ideas");
     revalidatePath(`/app/calendars/${calendarId}`);
-    return { postId: post.id };
+    return { postIds: posts.map((p) => p.id) };
   } catch {
     return { error: "We couldn't add that idea to the calendar. Please try again." };
   }

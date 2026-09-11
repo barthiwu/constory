@@ -100,10 +100,24 @@ export async function buildAIContext(supabase: DB, workspaceId: string): Promise
   };
 }
 
-/** Renders the brand+strategy portion of the context as prompt-ready text, shared by every prompt builder. */
+/**
+ * Renders the brand+strategy portion of the context as prompt-ready text,
+ * shared by every prompt builder. Always leads with today's real date —
+ * without this, the model has no way to know the current date falls after
+ * its training cutoff and will confidently generate content framed as
+ * current-year that's actually stale (e.g. "2023 digital marketing trends"
+ * surfacing as a fresh idea in 2026). Every SYSTEM_PROMPT that consumes
+ * this block also has an explicit instruction pointing back at this line —
+ * see generate-ideas.ts, generate-calendar.ts, generate-strategy.ts,
+ * regenerate.ts.
+ */
 export function renderBrandContextBlock(ctx: AIContext): string {
   const { brand, strategy } = ctx;
   const lines: string[] = [];
+  const today = new Date();
+  lines.push(
+    `Today's date: ${today.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}. Treat this as the actual current date — do not reference or generate content framed around any other year as if it were current or upcoming.`,
+  );
   lines.push(`Brand: ${brand.workspaceName}`);
   if (brand.industry) lines.push(`Industry: ${brand.industry}`);
   if (brand.businessDescription) lines.push(`Business description: ${brand.businessDescription}`);

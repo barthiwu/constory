@@ -93,25 +93,36 @@ export async function duplicateIdea(supabase: DB, ideaId: string): Promise<Conte
  * itself defaults to idea.recommended_platform) and can change every one of
  * these fields afterward in the post workspace.
  */
+/**
+ * Creates one draft post per selected platform from this idea — the same
+ * brief/hook/format/objective, scheduled the same date, just one row per
+ * platform (spec has no "one post, many platforms" concept: calendar_posts
+ * .platform is a single required column, so "post this everywhere" means
+ * "post this, once each, everywhere"). The idea is marked used once,
+ * regardless of how many platforms were selected.
+ */
 export async function addIdeaToCalendar(
   supabase: DB,
   idea: ContentIdea,
   calendarId: string,
   scheduledDate: string,
-  platform: string,
+  platforms: string[],
 ) {
-  const input: CreatePostInput = {
-    content_pillar_id: idea.content_pillar_id,
-    scheduled_date: scheduledDate,
-    platform,
-    title: idea.title,
-    brief: idea.description,
-    format: idea.recommended_format,
-    objective: idea.content_objective,
-    hook: idea.suggested_hook,
-    status: "draft",
-  };
-  const post = await createPost(supabase, calendarId, input);
+  const posts = [];
+  for (const platform of platforms) {
+    const input: CreatePostInput = {
+      content_pillar_id: idea.content_pillar_id,
+      scheduled_date: scheduledDate,
+      platform,
+      title: idea.title,
+      brief: idea.description,
+      format: idea.recommended_format,
+      objective: idea.content_objective,
+      hook: idea.suggested_hook,
+      status: "draft",
+    };
+    posts.push(await createPost(supabase, calendarId, input));
+  }
   await updateIdea(supabase, idea.id, { status: "used" });
-  return post;
+  return posts;
 }

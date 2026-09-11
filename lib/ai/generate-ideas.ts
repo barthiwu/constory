@@ -21,6 +21,9 @@ Rules:
   one-line opening/angle that would stop the scroll. Use null for any of these you genuinely can't recommend.
 - recommended_format must be exactly one of: ${CONTENT_FORMAT_OPTIONS.map((f) => `"${f}"`).join(", ")}. Pick
   whichever fits the idea best -- never invent a different label.
+- Ground every idea in the actual current date given in the context below — never propose "trends", "this year"
+  content, or time-sensitive angles (e.g. year-specific predictions, seasonal tie-ins) dated to any year other
+  than the current one.
 - Respond only with the structured output requested.`;
 
 export interface GenerateIdeasParams {

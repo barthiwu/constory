@@ -138,6 +138,8 @@ Rules:
   the topic and platform best -- never invent a different label.
 - Assign a "reference" to each topic as "p{n}" where n is a running 1-based index across the whole batch, e.g.
   p1, p2, p3 — these must be unique.
+- Ground every topic in the actual current date given in the context below — never propose "trends", "this
+  year" content, or time-sensitive angles dated to any year other than the current one.
 - Respond only with the structured output requested.`;
 
 async function generateTopics(
