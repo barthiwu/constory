@@ -1,0 +1,67 @@
+name: CI
+
+# Runs on every push to main and every pull request. Two independent jobs so
+# a slow Postgres install for the DB suite doesn't hold up the fast
+# type-check/lint/test/build feedback loop.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    name: Type check, lint, unit tests, build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        # Public placeholder values only, just enough for `next build` to
+        # construct the Supabase client during static generation without
+        # crashing — no real backend is contacted during a build. Never put
+        # real project credentials here.
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: sb_publishable_ci_placeholder
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+        run: npm run build
+
+  db-tests:
+    name: Database / RLS test suite
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Ubuntu 24.04's default apt package is PostgreSQL 16, which matches
+      # what supabase/tests/README.md requires. Installing it (rather than
+      # using a services: container) matches how supabase/tests/run.sh
+      # actually connects -- `sudo -u postgres psql` over the local unix
+      # socket, which needs a real "postgres" system user, not a TCP
+      # container port.
+      - name: Install PostgreSQL 16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+
+      - name: Run RLS / migration test suite
+        run: npm run test:db
