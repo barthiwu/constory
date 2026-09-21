@@ -6,6 +6,8 @@ export type Role = "owner" | "admin" | "editor" | "viewer";
 export type StrategySource = "AI" | "USER" | "AI_EDITED";
 export type IdeaSource = "AI" | "USER";
 export type IdeaStatus = "active" | "used" | "archived";
+export type SupportChatStatus = "open" | "escalated" | "closed";
+export type SupportMessageRole = "user" | "assistant";
 export type PostStatus = "draft" | "planned" | "completed";
 export type GenerationType =
   | "strategy"
@@ -310,6 +312,25 @@ export type NotificationLog = {
   created_at: string;
 };
 
+export type SupportChat = {
+  id: string;
+  user_id: string | null;
+  workspace_id: string | null;
+  page_path: string | null;
+  status: SupportChatStatus;
+  notified_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SupportMessage = {
+  id: string;
+  chat_id: string;
+  role: SupportMessageRole;
+  content: string;
+  created_at: string;
+};
+
 export type Database = {
   public: {
     Tables: {
@@ -485,6 +506,41 @@ export type Database = {
         Insert: Partial<NotificationLog> & { event_key: string };
         Update: Partial<NotificationLog>;
         Relationships: [];
+      };
+      support_chats: {
+        Row: SupportChat;
+        Insert: Partial<SupportChat>;
+        Update: Partial<SupportChat>;
+        Relationships: [
+          {
+            foreignKeyName: "support_chats_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "support_chats_workspace_id_fkey";
+            columns: ["workspace_id"];
+            isOneToOne: false;
+            referencedRelation: "workspaces";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      support_messages: {
+        Row: SupportMessage;
+        Insert: Partial<SupportMessage> & { chat_id: string; role: SupportMessageRole; content: string };
+        Update: Partial<SupportMessage>;
+        Relationships: [
+          {
+            foreignKeyName: "support_messages_chat_id_fkey";
+            columns: ["chat_id"];
+            isOneToOne: false;
+            referencedRelation: "support_chats";
+            referencedColumns: ["id"];
+          },
+        ];
       };
     };
     Views: Record<string, never>;

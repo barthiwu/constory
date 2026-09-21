@@ -95,6 +95,46 @@ export function weeklyDigestEmail(input: {
   return { subject, html };
 }
 
+/**
+ * A support chat started -- sent to SUPPORT_NOTIFICATION_EMAIL (an operator
+ * alert, not a user notification), so it deliberately skips wrapper()'s
+ * "manage your notification preferences" footer -- there's no per-user
+ * preference for this, it's not governed by notification_preferences.
+ */
+export function supportChatStartedEmail(input: { identity: string; firstMessage: string; pagePath: string | null; chatId: string }): {
+  subject: string;
+  html: string;
+} {
+  const subject = `New support chat: ${input.identity}`;
+  const html = `<!doctype html>
+<html>
+  <body style="margin:0;padding:0;background-color:#eef0f3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;">
+            <tr>
+              <td style="padding:24px 32px;border-bottom:1px solid #dfe2e8;">
+                <span style="font-size:20px;font-weight:600;color:${BRAND_BLUE};">Constory support</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:32px;color:#111827;font-size:15px;line-height:1.6;">
+                <p style="margin:0 0 8px;"><strong>${escapeHtml(input.identity)}</strong> just started a chat${input.pagePath ? ` from <code>${escapeHtml(input.pagePath)}</code>` : ""}.</p>
+                <p style="margin:0 0 12px;color:#667085;">Their first message:</p>
+                <p style="margin:0 0 12px;padding:12px 16px;background:#f4f5f7;border-radius:8px;">${escapeHtml(input.firstMessage)}</p>
+                <p style="margin:0;color:#98a2b3;font-size:12px;">Chat ID: ${escapeHtml(input.chatId)}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+  return { subject, html };
+}
+
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
