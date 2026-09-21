@@ -9,6 +9,7 @@ import {
   type AICaptionRegenOutput,
 } from "@/lib/ai/schemas";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
+import { assertNoStaleYearReferences } from "@/lib/ai/safety-checks";
 import { type ImproveOption } from "@/lib/ai/improve-options";
 import type { CalendarPost } from "@/types/database";
 
@@ -48,6 +49,7 @@ export async function regenerateTopic(ctx: AIContext, post: CalendarPost): Promi
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return a usable topic. Please try again.");
+    assertNoStaleYearReferences([parsed.title, parsed.brief, parsed.hook]);
     return parsed;
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't regenerate this topic right now. The current content is unchanged.");
@@ -76,6 +78,7 @@ export async function generateAlternativeAngle(ctx: AIContext, post: CalendarPos
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return a usable alternative. Please try again.");
+    assertNoStaleYearReferences([parsed.title, parsed.brief, parsed.hook]);
     return parsed;
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't generate an alternative angle right now. The current content is unchanged.");
@@ -104,6 +107,7 @@ export async function regenerateCaption(ctx: AIContext, post: CalendarPost): Pro
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return a usable caption. Please try again.");
+    assertNoStaleYearReferences([parsed.caption, parsed.cta]);
     return { ...parsed, hashtags: normalizeHashtags(parsed.hashtags) };
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't regenerate this caption right now. The current content is unchanged.");
@@ -144,6 +148,7 @@ export async function improveField(
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return usable text. Please try again.");
+    assertNoStaleYearReferences([parsed.value]);
     return parsed.value;
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't improve this right now. The current content is unchanged.");
@@ -175,6 +180,7 @@ export async function regenerateField(
     });
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return usable text. Please try again.");
+    assertNoStaleYearReferences([parsed.value]);
     return parsed.value;
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't regenerate this right now. The current content is unchanged.");

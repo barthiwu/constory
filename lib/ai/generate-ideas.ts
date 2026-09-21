@@ -3,6 +3,7 @@ import { getOpenAIClient, AI_MODEL_FAST, toAIGenerationError, AIGenerationError 
 import { aiIdeasSchema, type AIIdeasOutput } from "@/lib/ai/schemas";
 import { CONTENT_FORMAT_OPTIONS } from "@/lib/constants";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
+import { assertNoStaleYearReferences } from "@/lib/ai/safety-checks";
 
 const SYSTEM_PROMPT = `You are Constory's content ideation engine. You generate specific, usable content ideas for a
 brand's content pillars — concrete enough that someone could start drafting from the idea alone, never generic
@@ -68,6 +69,10 @@ export async function generateIdeas(ctx: AIContext, params: GenerateIdeasParams)
 
     const parsed = completion.choices[0]?.message?.parsed;
     if (!parsed) throw new AIGenerationError("The AI didn't return usable ideas. Please try again.");
+    assertNoStaleYearReferences(
+      parsed.ideas.flatMap((i) => [i.title, i.description, i.suggested_hook]),
+      "One or more generated ideas referenced an out-of-date year. Please try again.",
+    );
     return parsed;
   } catch (err) {
     throw toAIGenerationError(err, "We couldn't generate ideas right now. Your existing ideas are safe.");

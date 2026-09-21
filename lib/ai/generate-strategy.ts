@@ -2,6 +2,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { getOpenAIClient, AI_MODEL_STRATEGY, toAIGenerationError, AIGenerationError } from "@/lib/ai/client";
 import { aiStrategySchema, type AIStrategyOutput } from "@/lib/ai/schemas";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
+import { assertNoStaleYearReferences } from "@/lib/ai/safety-checks";
 import { normalizeToHundred } from "@/lib/ai/distribution";
 
 const SYSTEM_PROMPT = `You are Constory's content strategy engine. You turn a business's brand information into a
@@ -59,6 +60,16 @@ export async function generateStrategy(ctx: AIContext): Promise<GenerateStrategy
       ...parsed,
       pillars: parsed.pillars.map((p, i) => ({ ...p, recommended_percentage: normalized[i] })),
     };
+
+    assertNoStaleYearReferences(
+      [
+        strategy.strategy_summary,
+        strategy.monthly_theme,
+        ...strategy.pillars.map((p) => p.description),
+        ...strategy.strategic_recommendations,
+      ],
+      "The generated strategy referenced an out-of-date year. Please try again.",
+    );
 
     return { strategy };
   } catch (err) {

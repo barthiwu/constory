@@ -2,6 +2,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { getOpenAIClient, AI_MODEL_FAST, AIGenerationError } from "@/lib/ai/client";
 import { aiTopicsSchema, aiBatchPostDetailsSchema, normalizeHashtags, type AITopicsOutput, type AIBatchPostDetailsOutput } from "@/lib/ai/schemas";
 import { renderBrandContextBlock, type AIContext } from "@/lib/ai/context";
+import { assertNoStaleYearReferences, hasStaleYearReference } from "@/lib/ai/safety-checks";
 import { largestRemainderAllocate, calculatePostCount, distributeDatesAcrossRange } from "@/lib/ai/distribution";
 import type { ContentPillar, ContentCalendar } from "@/types/database";
 import type { CreatePostInput } from "@/services/calendar-service";
@@ -184,6 +185,10 @@ async function generateTopics(
   if (!parsed || parsed.topics.length === 0) {
     throw new AIGenerationError("The AI couldn't generate calendar topics. Please try again.");
   }
+  assertNoStaleYearReferences(
+    parsed.topics.map((t) => t.title),
+    "One or more generated calendar topics referenced an out-of-date year. Please try again.",
+  );
   return parsed.topics;
 }
 
@@ -232,6 +237,10 @@ async function dedupeTopics(
   });
 
   const replacements = completion.choices[0]?.message?.parsed?.topics ?? [];
+  assertNoStaleYearReferences(
+    replacements.map((r) => r.title),
+    "One or more replacement calendar topics referenced an out-of-date year. Please try again.",
+  );
   const byRef = new Map(replacements.map((r) => [r.reference, r]));
 
   return unique.map((t) => (existingTitles.has(t.title.toLowerCase().trim()) ? (byRef.get(t.reference) ?? t) : t));
@@ -295,7 +304,13 @@ async function generatePostDetails(
     settled.forEach((res) => {
       if (res.status === "fulfilled") {
         const posts = res.value.choices[0]?.message?.parsed?.posts ?? [];
-        posts.forEach((p) => result.set(p.reference, p));
+        posts.forEach((p) => {
+          // A post whose generated copy drifted into a stale year is treated the same as
+          // a failed chunk (see the comment below) rather than persisted with dated
+          // content — Stage 8 fills in a safe placeholder for it instead.
+          if (hasStaleYearReference([p.brief, p.hook, p.caption, p.cta, p.creative_direction])) return;
+          result.set(p.reference, p);
+        });
       }
       // A failed chunk simply leaves those posts without generated detail — Stage 8 below
       // fills in a safe placeholder rather than dropping the post entirely, and the whole
