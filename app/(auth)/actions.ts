@@ -18,6 +18,8 @@ export interface ActionResult {
   error?: string;
   success?: boolean;
   message?: string;
+  /** Set on loginAction when `error` is specifically "email not confirmed" -- lets the form offer a resend link. */
+  emailUnconfirmed?: boolean;
 }
 
 function friendlyAuthError(message: string): string {
@@ -50,9 +52,13 @@ export async function signupAction(input: SignupInput, redirectTo?: string | nul
     password,
     options: {
       data: { full_name: fullName },
-      emailRedirectTo: redirectTo
-        ? `${process.env.NEXT_PUBLIC_APP_URL}/login?redirectTo=${encodeURIComponent(safeRedirect)}`
-        : `${process.env.NEXT_PUBLIC_APP_URL}/login`,
+      // Routes through app/auth/confirm/route.ts (a Route Handler) so the
+      // token verify actually persists a session cookie -- see that file's
+      // comment for why verifying directly in a page Server Component
+      // silently fails to do so. Confirming lands the user straight in the
+      // app already signed in (verifyOtp/exchangeCodeForSession both create
+      // a real session), rather than sending them back to log in again.
+      emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirm?next=${encodeURIComponent(safeRedirect)}`,
     },
   });
 
@@ -61,14 +67,46 @@ export async function signupAction(input: SignupInput, redirectTo?: string | nul
   }
 
   if (!data.session) {
-    // Email confirmation is required on this project before a session is issued.
+    // Email confirmation is required on this project before a session is
+    // issued -- once they click the link, /auth/confirm signs them in
+    // automatically (see the emailRedirectTo comment above), no separate
+    // login step needed.
     return {
       success: true,
-      message: "Check your inbox to confirm your email address, then log in.",
+      message: "Check your inbox to confirm your email address — you'll be signed in automatically once you do.",
     };
   }
 
   redirect(safeRedirect);
+}
+
+/**
+ * Re-sends the "confirm your signup" email -- for when the first one never
+ * arrived, landed in spam, or its link expired (Supabase confirmation links
+ * are time-limited). Offered from both the signup success screen and the
+ * login form's "email not confirmed" error.
+ */
+export async function resendConfirmationAction(email: string): Promise<ActionResult> {
+  const parsed = forgotPasswordSchema.safeParse({ email });
+  if (!parsed.success) {
+    return { error: "Enter a valid email address" };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({ type: "signup", email: parsed.data.email });
+
+  if (error && error.message.toLowerCase().includes("rate limit")) {
+    return { error: "Please wait a moment before requesting another email." };
+  }
+
+  // Always report success -- whether or not an account exists for this
+  // email, and whether or not it's already confirmed -- so this can't be
+  // used to probe which addresses have accounts (same principle as
+  // forgotPasswordAction below).
+  return {
+    success: true,
+    message: "If that email needs confirming, a new link is on its way.",
+  };
 }
 
 export async function loginAction(
@@ -84,7 +122,8 @@ export async function loginAction(
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
 
   if (error) {
-    return { error: friendlyAuthError(error.message) };
+    const emailUnconfirmed = error.message.toLowerCase().includes("email not confirmed");
+    return { error: friendlyAuthError(error.message), emailUnconfirmed };
   }
 
   // A password match alone isn't enough for an account with two-factor

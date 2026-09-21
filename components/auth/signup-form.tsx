@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { signupSchema, type SignupInput } from "@/lib/validations/auth";
-import { signupAction } from "@/app/(auth)/actions";
+import { signupAction, resendConfirmationAction } from "@/app/(auth)/actions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -24,6 +24,9 @@ export function SignupForm() {
   const invitedEmail = searchParams.get("email");
   const [serverError, setServerError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
 
   const {
     register,
@@ -42,8 +45,18 @@ export function SignupForm() {
       return;
     }
     if (result?.success) {
+      setPendingEmail(values.email);
       setSuccessMessage(result.message ?? "Account created.");
     }
+  }
+
+  async function handleResend() {
+    if (!pendingEmail || resending) return;
+    setResending(true);
+    setResent(false);
+    await resendConfirmationAction(pendingEmail);
+    setResending(false);
+    setResent(true);
   }
 
   if (successMessage) {
@@ -53,10 +66,27 @@ export function SignupForm() {
           <CardTitle>Check your email</CardTitle>
           <CardDescription>{successMessage}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-3">
           <Button asChild variant="secondary" className="w-full">
             <Link href="/login">Back to login</Link>
           </Button>
+          <p className="text-center text-sm text-text-secondary">
+            {resent ? (
+              "Sent again — check your inbox (and spam folder)."
+            ) : (
+              <>
+                Didn&apos;t get it?{" "}
+                <button
+                  type="button"
+                  onClick={handleResend}
+                  disabled={resending}
+                  className="font-medium text-constory-blue hover:underline disabled:opacity-60"
+                >
+                  {resending ? "Sending…" : "Resend email"}
+                </button>
+              </>
+            )}
+          </p>
         </CardContent>
       </Card>
     );
