@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Compass, Plus, RefreshCw, Sparkles, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -70,15 +70,23 @@ export function StrategyView({
   // navigate anywhere), so without an explicit sync here the newly
   // fetched data never reaches `summary`/`pillars` state and the UI keeps
   // showing whatever was true at first mount (empty, before any strategy
-  // existed).
-  useEffect(() => {
+  // existed). Adjusted directly during render (React's documented pattern
+  // for "reset state when a prop changes") rather than in a useEffect --
+  // calling setState synchronously inside an effect body causes an extra,
+  // avoidable render pass (react-hooks/set-state-in-effect); doing it here
+  // lets React fold the reset into the render already in progress.
+  const [prevStrategy, setPrevStrategy] = useState(strategy);
+  if (prevStrategy !== strategy) {
+    setPrevStrategy(strategy);
     setSummary(strategy?.strategy_summary ?? "");
     setSummaryDirty(false);
-  }, [strategy]);
+  }
 
-  useEffect(() => {
+  const [prevInitialPillars, setPrevInitialPillars] = useState(initialPillars);
+  if (prevInitialPillars !== initialPillars) {
+    setPrevInitialPillars(initialPillars);
     setPillars(initialPillars);
-  }, [initialPillars]);
+  }
 
   // Browser-level backstop against accidental loss (Phase 7 spec section 8):
   // an in-review AI draft with edits, an unsaved summary edit, or a
