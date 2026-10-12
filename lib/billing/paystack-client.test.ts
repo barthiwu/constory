@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import crypto from "node:crypto";
-import { verifyPaystackSignature, isPaystackConfigured } from "@/lib/billing/paystack-client";
+import { verifyPaystackSignature, isPaystackConfigured, initializeTransaction } from "@/lib/billing/paystack-client";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -76,5 +76,37 @@ describe("isPaystackConfigured", () => {
   it("is true once a secret key is set", () => {
     process.env.PAYSTACK_SECRET_KEY = "sk_test_abc123";
     expect(isPaystackConfigured()).toBe(true);
+  });
+});
+
+describe("initializeTransaction", () => {
+  const base = {
+    email: "a@b.co",
+    amountCents: 1_800_000,
+    currency: "NGN",
+    callbackUrl: "https://app.test/app/settings/billing",
+    metadata: { user_id: "u", workspace_id: null, plan_slug: "creator", billing_interval: "monthly", environment: "test" },
+  };
+
+  async function sentBody(params: Parameters<typeof initializeTransaction>[0]) {
+    process.env.PAYSTACK_SECRET_KEY = "sk_test_abc123";
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ status: true, data: { authorization_url: "https://x", access_code: "a", reference: "r" } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await initializeTransaction(params);
+    vi.unstubAllGlobals();
+    return JSON.parse((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string);
+  }
+
+  it("a card subscription checkout sends the plan code and no channel restriction", async () => {
+    const body = await sentBody({ ...base, planCode: "PLN_abc" });
+    expect(body.plan).toBe("PLN_abc");
+    expect(body).not.toHaveProperty("channels");
+  });
+
+  it("a bank transfer checkout sends NO plan (no recurring subscription) and restricts to bank_transfer", async () => {
+    const body = await sentBody({ ...base, channels: ["bank_transfer"] });
+    expect(body).not.toHaveProperty("plan");
+    expect(body.channels).toEqual(["bank_transfer"]);
+    expect(body.amount).toBe(1_800_000);
   });
 });

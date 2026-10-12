@@ -53,7 +53,10 @@ export interface InitializeTransactionParams {
   amountCents: number;
   /** Whatever currency is actually enabled on this Paystack integration — see lib/billing/currency.ts. Not necessarily USD. */
   currency: string;
-  planCode: string;
+  /** Omit for a one-off payment (bank transfer): Paystack then creates no recurring subscription. */
+  planCode?: string;
+  /** Restricts the checkout to these Paystack channels (e.g. ["bank_transfer"]). Omit to use the channels enabled on the dashboard. */
+  channels?: string[];
   callbackUrl: string;
   /** Validated server-side before this call is made — never derived from client input directly (spec §15-16). */
   metadata: {
@@ -61,6 +64,8 @@ export interface InitializeTransactionParams {
     workspace_id: string | null;
     plan_slug: string;
     billing_interval: string;
+    /** "bank_transfer" for a one-off prepaid payment; absent for a card subscription. Audit trail only -- activation never trusts it. */
+    payment_method?: string;
     environment: string;
     /** Audit trail: the USD price this actually corresponds to, and the FX rate used to convert it — see lib/billing/currency.ts. */
     usd_amount_cents?: number;
@@ -82,7 +87,8 @@ export async function initializeTransaction(params: InitializeTransactionParams)
       email: params.email,
       amount: params.amountCents,
       currency: params.currency,
-      plan: params.planCode,
+      ...(params.planCode ? { plan: params.planCode } : {}),
+      ...(params.channels && params.channels.length > 0 ? { channels: params.channels } : {}),
       callback_url: params.callbackUrl,
       metadata: params.metadata,
     }),
@@ -95,6 +101,8 @@ export interface VerifyTransactionResult {
   reference: string;
   amount: number;
   currency: string;
+  /** How the customer paid: "card", "bank_transfer", "bank", "ussd", ... */
+  channel?: string;
   customer: { email: string; customer_code?: string };
   plan: string | null;
   metadata: Record<string, unknown> | null;

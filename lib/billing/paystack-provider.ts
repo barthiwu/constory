@@ -31,11 +31,11 @@ import {
 import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
 import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate } from "@/lib/billing/currency";
-import { activatePaidPlanFromPayment, recordBillingEvent, releaseBillingEvent } from "@/services/billing-service";
-import { checkPaymentMatchesPlan, parsePaidPlanSelection } from "@/lib/billing/payment-guard";
+import { activatePaidPlanFromPayment, activatePrepaidPlanFromPayment, recordBillingEvent, releaseBillingEvent } from "@/services/billing-service";
+import { checkPaymentMatchesPlan, isOneOffPayment, parsePaidPlanSelection, type PaidPlanId } from "@/lib/billing/payment-guard";
 import { expectedPaymentFor, chargeIdempotencyKey } from "@/lib/billing/payment-expectations";
 import { createAdminClient } from "@/lib/supabase/server";
-import type { BillingProvider, CheckoutResult } from "@/lib/billing/provider";
+import type { BillingProvider, CheckoutResult, PaymentMethod } from "@/lib/billing/provider";
 
 type DB = SupabaseClient<Database>;
 
@@ -162,10 +162,15 @@ export class PaystackBillingProvider implements BillingProvider {
     email: string,
     planId: PlanId,
     billingInterval: BillingInterval,
+    method: PaymentMethod = "card",
   ): Promise<CheckoutResult> {
     if (planId === "free") {
       await this.changePlan(supabase, ownerId, planId, billingInterval);
       return { activated: true, message: "You're on the Free plan." };
+    }
+
+    if (method === "bank_transfer") {
+      return this.createBankTransferCheckout(ownerId, email, planId, billingInterval);
     }
 
     if (!paystackPlanCodesConfigured()) {
@@ -207,6 +212,53 @@ export class PaystackBillingProvider implements BillingProvider {
     return {
       activated: false,
       message: "Redirecting you to Paystack to complete payment securely.",
+      redirectUrl: result.authorization_url,
+    };
+  }
+
+  /**
+   * One-off payment by bank transfer. Paystack's checkout shows the customer a single-use account
+   * number to transfer to and confirms the payment the moment the money lands (webhook and/or the
+   * redirect back to the billing page). There is no `plan` on this transaction because Paystack
+   * can only bill a plan to a card: a transfer leaves nothing to charge again, so the plan runs for
+   * the period paid for and is renewed by paying again (see activatePrepaidPlanFromPayment).
+   *
+   * The amount is computed here from our own USD price list and FX rate -- never from the client --
+   * and re-checked against the same figure when the payment comes back (payment-guard.ts).
+   * Bank transfer is a Nigerian channel, so it is only offered when we charge in NGN.
+   */
+  private async createBankTransferCheckout(
+    ownerId: string,
+    email: string,
+    planId: PaidPlanId,
+    billingInterval: BillingInterval,
+  ): Promise<CheckoutResult> {
+    if (CHARGE_CURRENCY.toUpperCase() !== "NGN") {
+      return { activated: false, message: "Bank transfer is only available for payments in NGN." };
+    }
+
+    const usdCents = priceForInterval(planId, billingInterval);
+    const result = await initializeTransaction({
+      email,
+      amountCents: usdCentsToChargeCurrencyMinorUnits(usdCents),
+      currency: CHARGE_CURRENCY,
+      channels: ["bank_transfer"],
+      callbackUrl: `${appUrl()}/app/settings/billing`,
+      metadata: {
+        user_id: ownerId,
+        workspace_id: null,
+        plan_slug: planId,
+        billing_interval: billingInterval,
+        payment_method: "bank_transfer",
+        environment: process.env.NODE_ENV ?? "development",
+        usd_amount_cents: usdCents,
+        fx_rate_to_charge_currency: currentUsdToChargeCurrencyRate(),
+      },
+    });
+
+    return {
+      activated: false,
+      message: "Redirecting you to Paystack to pay by bank transfer.",
       redirectUrl: result.authorization_url,
     };
   }
@@ -317,7 +369,7 @@ export async function verifyAndActivatePaymentReference(
   // that it was for the plan the (attacker-influenceable) metadata names. Cross-check the plan
   // code / amount actually paid against what our server expects for that plan.
   const verdict = checkPaymentMatchesPlan(
-    { amount: tx.amount, currency: tx.currency, plan: tx.plan },
+    { amount: tx.amount, currency: tx.currency, plan: tx.plan, channel: tx.channel ?? null },
     expectedPaymentFor(planSlug, billingInterval),
   );
   if (!verdict.ok) {
@@ -340,34 +392,19 @@ export async function verifyAndActivatePaymentReference(
     return { status: "already_processed", message: "This payment was already applied to your account." };
   }
 
-  // The transaction-verify response carries the card's reusable
-  // authorization directly, but Paystack creates the recurring Subscription
-  // object asynchronously from a plan-code checkout — it's not on this
-  // response at all, so it's looked up separately (best-effort: if it's not
-  // there yet, cancelSubscription/scheduleDowngrade fall back to the same
-  // lookup later when they actually need it).
-  const authorizationCode = tx.authorization?.authorization_code ?? null;
-  let subscriptionCode: string | null = null;
-  let subscriptionToken: string | null = null;
-  if (tx.customer.customer_code) {
-    try {
-      const resolved = await resolveActiveProviderSubscription(tx.customer.customer_code);
-      if (resolved) {
-        subscriptionCode = resolved.subscriptionCode;
-        subscriptionToken = resolved.emailToken;
-      }
-    } catch {
-      // Non-fatal — see the comment above.
-    }
-  }
-
   try {
-    await activatePaidPlanFromPayment(adminSupabase, expectedOwnerId, planSlug, billingInterval, {
+    const outcome = await applyVerifiedPaystackPayment(adminSupabase, {
+      ownerId: expectedOwnerId,
+      planId: planSlug,
+      billingInterval,
+      plan: tx.plan,
       customerCode: tx.customer.customer_code ?? null,
-      subscriptionCode,
-      subscriptionToken,
-      authorizationCode,
+      authorizationCode: tx.authorization?.authorization_code ?? null,
     });
+    if (outcome.prepaid) {
+      const until = new Date(outcome.periodEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return { status: "activated", message: `Payment verified — you're on the ${planSlug} plan until ${until}.` };
+    }
   } catch (err) {
     // Don't leave a "processed" claim behind for an activation that didn't happen, or the
     // user's retry (and the webhook) would both be told it was "already applied".
@@ -376,4 +413,65 @@ export async function verifyAndActivatePaymentReference(
   }
 
   return { status: "activated", message: `Payment verified — you're now on the ${planSlug} plan.` };
+}
+
+/**
+ * The ONE place a verified Paystack payment becomes a plan, shared by the webhook and the
+ * verify-on-return path so they can never disagree.
+ *
+ * - Made against a Paystack plan (card): recurring. Record the card token and the Paystack
+ *   subscription so renewals, downgrades and cancellation work.
+ * - Not made against a plan (bank transfer): prepaid. Stop any live card subscription first (the
+ *   customer must not be charged by the old one as well), then activate the plan for the period
+ *   that was paid for. A failure to disable propagates so the caller releases its idempotency
+ *   claim and the event is retried, rather than leaving the customer double-billed.
+ *
+ * The caller has already verified the payment (signature or /transaction/verify) and run
+ * checkPaymentMatchesPlan.
+ */
+export async function applyVerifiedPaystackPayment(
+  adminSupabase: DB,
+  payment: {
+    ownerId: string;
+    planId: PaidPlanId;
+    billingInterval: BillingInterval;
+    /** Paystack's `plan` field of the transaction: a plan code / object for a card subscription, empty for a one-off payment. */
+    plan: unknown;
+    customerCode: string | null;
+    authorizationCode: string | null;
+  },
+): Promise<{ prepaid: false } | { prepaid: true; extended: boolean; periodEnd: string }> {
+  const { ownerId, planId, billingInterval, customerCode } = payment;
+
+  if (isOneOffPayment(payment.plan)) {
+    await disableLivePaystackSubscription(ownerId);
+    const result = await activatePrepaidPlanFromPayment(adminSupabase, ownerId, planId, billingInterval, { customerCode });
+    return { prepaid: true, ...result };
+  }
+
+  // The transaction carries the card's reusable authorization directly, but Paystack creates the
+  // recurring Subscription object asynchronously from a plan-code checkout, so it is looked up
+  // separately (best-effort: cancelSubscription/scheduleDowngrade fall back to the same lookup
+  // later when they actually need it).
+  let subscriptionCode: string | null = null;
+  let subscriptionToken: string | null = null;
+  if (customerCode) {
+    try {
+      const resolved = await resolveActiveProviderSubscription(customerCode);
+      if (resolved) {
+        subscriptionCode = resolved.subscriptionCode;
+        subscriptionToken = resolved.emailToken;
+      }
+    } catch {
+      // Non-fatal -- see the comment above.
+    }
+  }
+
+  await activatePaidPlanFromPayment(adminSupabase, ownerId, planId, billingInterval, {
+    customerCode,
+    subscriptionCode,
+    subscriptionToken,
+    authorizationCode: payment.authorizationCode,
+  });
+  return { prepaid: false };
 }

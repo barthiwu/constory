@@ -4,9 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
-import { setActiveWorkspaces, getResolvedSubscription } from "@/services/billing-service";
+import { setActiveWorkspaces, getResolvedSubscription, PrepaidPlanError } from "@/services/billing-service";
 import { getPlanEntitlements, getPlan, isUpgrade } from "@/lib/billing/plans";
 import type { PlanId, BillingInterval } from "@/types/database";
+import type { PaymentMethod } from "@/lib/billing/provider";
 
 export interface ActionResult {
   error?: string;
@@ -15,7 +16,13 @@ export interface ActionResult {
 const planSelectionSchema = z.object({
   planId: z.enum(["free", "creator", "pro"]),
   billingInterval: z.enum(["monthly", "quarterly", "annual"]),
+  method: z.enum(["card", "bank_transfer"]),
 });
+
+function formatDate(iso: string | null | undefined): string {
+  if (!iso) return "the end of the current period";
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
 async function requireUser() {
   const supabase = await createClient();
@@ -34,16 +41,38 @@ async function requireUser() {
 export async function changePlanAction(
   planId: PlanId,
   billingInterval: BillingInterval,
+  method: PaymentMethod = "card",
 ): Promise<ActionResult & { message?: string; redirectUrl?: string; scheduled?: boolean }> {
   const { supabase, user } = await requireUser();
   if (!user?.email) return { error: "Not authenticated." };
 
   // Server Actions are public POST endpoints -- the TS types on these arguments are not enforced at runtime.
-  if (!planSelectionSchema.safeParse({ planId, billingInterval }).success) return { error: "Invalid plan selection." };
+  if (!planSelectionSchema.safeParse({ planId, billingInterval, method }).success) return { error: "Invalid plan selection." };
 
   try {
     const current = await getResolvedSubscription(supabase, user.id);
     const currentPlanId = current?.plan_id ?? "free";
+    const isPrepaid = current?.renewal_mode === "manual" && currentPlanId !== "free";
+
+    if (method === "bank_transfer") {
+      // Bank transfer buys a period of a paid plan: a new plan, an upgrade, or a renewal of a plan that was
+      // itself prepaid. It can't be used to "downgrade", and paying by transfer on top of a card subscription
+      // for the SAME plan would just be paying twice.
+      if (planId === "free") return { error: "Free doesn't need a payment." };
+      if (planId !== currentPlanId && !isUpgrade(currentPlanId, planId)) {
+        return { error: `Your plan runs until ${formatDate(current?.current_period_end)}. You can switch to ${getPlan(planId).name} after it ends.` };
+      }
+      if (planId === currentPlanId && !isPrepaid) {
+        return { error: "Your plan renews automatically by card. Use bank transfer if you'd like to upgrade." };
+      }
+    } else if (isPrepaid && planId !== currentPlanId) {
+      if (planId === "free") {
+        return { message: `Your plan was paid for by bank transfer and ends on ${formatDate(current?.current_period_end)}, then moves to Free. It won't renew.`, scheduled: true };
+      }
+      if (!isUpgrade(currentPlanId, planId)) {
+        return { error: `Your plan runs until ${formatDate(current?.current_period_end)}. You can switch to ${getPlan(planId).name} after it ends.` };
+      }
+    }
 
     // A downgrade (to Free, or to a cheaper paid plan) never charges
     // immediately — it's scheduled for when the current paid period ends,
@@ -52,7 +81,7 @@ export async function changePlanAction(
     // immediate checkout (or immediate switch, for Free). See
     // lib/billing/plans.ts's isUpgrade and services/billing-service.ts's
     // cancelSubscription/scheduleDowngrade.
-    if (planId !== currentPlanId && !isUpgrade(currentPlanId, planId)) {
+    if (method === "card" && planId !== currentPlanId && !isUpgrade(currentPlanId, planId)) {
       const periodEnd = current?.current_period_end ? new Date(current.current_period_end) : null;
       const whenPhrase = periodEnd ? ` on ${periodEnd.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : "";
 
@@ -69,7 +98,7 @@ export async function changePlanAction(
       };
     }
 
-    const result = await getBillingProvider().createCheckout(supabase, user.id, user.email, planId, billingInterval);
+    const result = await getBillingProvider().createCheckout(supabase, user.id, user.email, planId, billingInterval, method);
     revalidatePath("/app/settings/billing");
     revalidatePath("/app", "layout");
     return { message: result.message, redirectUrl: result.redirectUrl };
@@ -102,6 +131,7 @@ export async function resumeSubscriptionAction(): Promise<ActionResult> {
     revalidatePath("/app/settings/billing");
     return {};
   } catch (err) {
+    if (err instanceof PrepaidPlanError) return { error: err.message };
     console.error("resumeSubscriptionAction failed:", err);
     return { error: "We couldn't resume your subscription. Please try again." };
   }

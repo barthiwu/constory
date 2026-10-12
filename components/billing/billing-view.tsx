@@ -15,6 +15,7 @@ import type { Subscription, CreditBalance, BillingProviderName } from "@/types/d
 
 const PAYMENT_RETURN_TOAST: Record<string, { title: string; description?: string; variant: "success" | "error" | "warning" }> = {
   success: { title: "Payment verified", description: "Your plan has been updated.", variant: "success" },
+  payment_mismatch: { title: "Payment didn't match", description: "We couldn't match this payment to the plan you chose, so no changes were made. Contact support with your payment reference.", variant: "error" },
   not_successful: { title: "Payment not completed", description: "No changes were made to your plan.", variant: "warning" },
   owner_mismatch: { title: "Couldn't verify payment", description: "This payment reference doesn't match your account.", variant: "error" },
   incomplete_metadata: { title: "Payment verified, but incomplete", description: "Contact support — we couldn't tell which plan this was for.", variant: "warning" },
@@ -123,7 +124,14 @@ export function BillingView({
             )}
           </div>
 
-          {!isFree && subscription?.pending_plan_id && (
+          {!isFree && subscription?.renewal_mode === "manual" && (
+            <div className="rounded-md bg-warning-light px-3 py-2 text-sm text-warning">
+              Paid by bank transfer — your {plan.name} plan runs until {formatDateTime(subscription.current_period_end)} and then moves to Free. It
+              doesn&rsquo;t renew by itself; renew below to extend it.
+            </div>
+          )}
+
+          {!isFree && subscription?.renewal_mode !== "manual" && subscription?.pending_plan_id && (
             <div className="flex flex-wrap items-center justify-between gap-3 rounded-md bg-warning-light px-3 py-2 text-sm text-warning">
               <span>
                 Your plan will move to {PLANS[subscription.pending_plan_id].name} on {formatDateTime(subscription.current_period_end)}.
@@ -134,7 +142,7 @@ export function BillingView({
             </div>
           )}
 
-          {!isFree && subscription && !subscription.pending_plan_id && (
+          {!isFree && subscription && subscription.renewal_mode !== "manual" && !subscription.pending_plan_id && (
             <Button size="sm" variant="destructive-ghost" onClick={handleCancel} loading={isPending} className="justify-self-start">
               Cancel subscription
             </Button>
@@ -164,7 +172,14 @@ export function BillingView({
           <CardDescription>Upgrade or downgrade at any time — your data is never deleted.</CardDescription>
         </CardHeader>
         <CardContent>
-          <PlanPicker currentPlanId={planId} currentInterval={subscription?.billing_interval ?? "monthly"} providerName={providerName} chargeCurrency={chargeCurrency} />
+          <PlanPicker
+            currentPlanId={planId}
+            currentInterval={subscription?.billing_interval ?? "monthly"}
+            providerName={providerName}
+            chargeCurrency={chargeCurrency}
+            isPrepaid={!isFree && subscription?.renewal_mode === "manual"}
+            currentPeriodEnd={subscription?.current_period_end ?? null}
+          />
         </CardContent>
       </Card>
     </div>

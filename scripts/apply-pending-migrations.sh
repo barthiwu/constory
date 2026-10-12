@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Applies the Supabase migrations that are NOT yet in your database (0023 -> 0028), in order, each in its own
+# Applies the Supabase migrations that are NOT yet in your database (0023 -> 0029), in order, each in its own
 # transaction. Safe to re-run: every migration has a "already applied?" probe and is skipped if so, and a
 # failing migration rolls back completely and stops the script.
 #
@@ -42,6 +42,7 @@ MIGRATIONS=(
   "0026_support_chat.sql|select to_regclass('public.support_chats') is not null"
   "0027_security_hardening.sql|select to_regclass('public.rate_limits') is not null"
   "0028_ai_credit_reservations.sql|select to_regprocedure('public.reserve_ai_credits(uuid,text,integer)') is not null"
+  "0029_prepaid_renewal_mode.sql|select exists (select 1 from information_schema.columns where table_schema='public' and table_name='subscriptions' and column_name='renewal_mode')"
 )
 
 applied=0
@@ -76,5 +77,8 @@ select case when not exists (select 1 from pg_proc p join pg_namespace n on n.oi
                               where n.nspname='public' and p.prosecdef and p.prokind='f'
                                 and not exists (select 1 from unnest(coalesce(p.proconfig,'{}')) c where c like 'search_path=%'))
             then 'PASS  every SECURITY DEFINER function has a pinned search_path' else 'FAIL  some SECURITY DEFINER functions lack a pinned search_path' end;
+select case when has_column_privilege('authenticated', 'public.subscriptions', 'renewal_mode', 'select')
+             and not has_column_privilege('authenticated', 'public.subscriptions', 'renewal_mode', 'update')
+            then 'PASS  subscriptions.renewal_mode is readable but not writable by clients' else 'FAIL  subscriptions.renewal_mode permissions are wrong' end;
 SQL
 echo "Done."

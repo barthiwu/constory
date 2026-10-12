@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Check } from "lucide-react";
+import { Check, Landmark } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/billing/plans";
 import { changePlanAction } from "@/app/app/(shell)/settings/billing/actions";
 import type { BillingProviderName } from "@/types/database";
+import type { PaymentMethod } from "@/lib/billing/provider";
 
 const INTERVALS: BillingInterval[] = ["monthly", "quarterly", "annual"];
 
@@ -27,22 +28,34 @@ export function PlanPicker({
   currentInterval,
   providerName,
   chargeCurrency,
+  isPrepaid = false,
+  currentPeriodEnd = null,
 }: {
   currentPlanId: PlanId;
   currentInterval: BillingInterval;
   providerName: BillingProviderName;
   /** Currency Paystack actually charges in — prices below are always shown in USD. */
   chargeCurrency: string;
+  /** The current paid plan was bought by bank transfer: it doesn't renew by itself and is extended by paying again. */
+  isPrepaid?: boolean;
+  /** When the current period ends (shown on options that only open up after it). */
+  currentPeriodEnd?: string | null;
 }) {
   const { toast } = useToast();
   const [interval, setInterval] = useState<BillingInterval>(currentInterval === "monthly" ? "monthly" : currentInterval);
-  const [pendingPlan, setPendingPlan] = useState<PlanId | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<{ planId: PlanId; method: PaymentMethod } | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function handleSwitch(planId: PlanId) {
-    setPendingPlan(planId);
+  // Bank transfer is a Paystack channel for NGN payments (a one-off payment for the period bought; it can't renew itself).
+  const bankTransferAvailable = providerName === "paystack" && chargeCurrency.toUpperCase() === "NGN";
+  const endsOn = currentPeriodEnd
+    ? new Date(currentPeriodEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "the current period ends";
+
+  function handleSwitch(planId: PlanId, method: PaymentMethod = "card") {
+    setPendingPlan({ planId, method });
     startTransition(async () => {
-      const result = await changePlanAction(planId, interval);
+      const result = await changePlanAction(planId, interval, method);
       if (result.error) {
         setPendingPlan(null);
         toast({ title: "Couldn't change plan", description: result.error, variant: "error" });
@@ -90,6 +103,12 @@ export function PlanPicker({
           const plan = PLANS[planId];
           const isCurrent = planId === currentPlanId && interval === currentInterval;
           const cents = priceForInterval(planId, interval);
+          // A prepaid account can't downgrade to another paid plan until its period ends, and "Free" already
+          // happens on its own then. Everything else (renew, upgrade, switch interval) is open.
+          const lockedUntilEnd = isPrepaid && planId !== currentPlanId && !isUpgrade(currentPlanId, planId);
+          const isPaid = planId !== "free";
+          const showTransfer = bankTransferAvailable && isPaid && !lockedUntilEnd && (isPrepaid ? true : planId !== currentPlanId && isUpgrade(currentPlanId, planId));
+          const renewsByTransfer = isPrepaid && planId === currentPlanId;
           return (
             <div
               key={planId}
@@ -111,15 +130,39 @@ export function PlanPicker({
                 <span className="text-xs text-text-secondary">{cents === 0 ? " forever" : interval === "quarterly" ? " / 3mo" : interval === "annual" ? " / yr" : " / mo"}</span>
               </div>
               <p className="text-xs text-text-secondary">{plan.entitlements.aiCreditsPerMonth} AI credits / month</p>
-              <Button
-                size="sm"
-                variant={isCurrent ? "secondary" : "primary"}
-                disabled={isCurrent}
-                loading={isPending && pendingPlan === planId}
-                onClick={() => handleSwitch(planId)}
-              >
-                {isCurrent ? "Current plan" : isUpgrade(currentPlanId, planId) || currentPlanId === planId ? "Upgrade" : "Downgrade"} to {plan.name}
-              </Button>
+              {lockedUntilEnd ? (
+                <Button size="sm" variant="secondary" disabled>
+                  {planId === "free" ? "Moves to Free when it ends" : `Available after ${endsOn}`}
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant={isCurrent && !isPrepaid ? "secondary" : "primary"}
+                  disabled={isCurrent && !isPrepaid}
+                  loading={isPending && pendingPlan?.planId === planId && pendingPlan.method === "card"}
+                  onClick={() => handleSwitch(planId)}
+                >
+                  {isCurrent
+                    ? isPrepaid
+                      ? "Switch to card auto-renewal"
+                      : "Current plan"
+                    : isUpgrade(currentPlanId, planId) || currentPlanId === planId
+                      ? `Upgrade to ${plan.name}${isPaid && bankTransferAvailable ? " (card)" : ""}`
+                      : `Downgrade to ${plan.name}`}
+                </Button>
+              )}
+              {showTransfer && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  loading={isPending && pendingPlan?.planId === planId && pendingPlan.method === "bank_transfer"}
+                  disabled={isPending}
+                  onClick={() => handleSwitch(planId, "bank_transfer")}
+                >
+                  <Landmark className="h-3.5 w-3.5" aria-hidden="true" />
+                  {renewsByTransfer ? "Renew by bank transfer" : "Pay by bank transfer"}
+                </Button>
+              )}
             </div>
           );
         })}
@@ -131,6 +174,12 @@ export function PlanPicker({
           : "No payment provider is connected yet in this environment — plan changes take effect immediately without collecting payment."}{" "}
         See the AI Credits panel above for how credits are affected.
       </p>
+      {bankTransferAvailable && (
+        <p className="text-xs text-text-muted">
+          Bank transfer is a one-time payment for the period you choose: Paystack gives you a single-use account number, and your plan
+          activates as soon as the transfer lands. It doesn&rsquo;t renew by itself, so renew it before it ends to keep your plan.
+        </p>
+      )}
       {providerName === "paystack" && chargeCurrency !== "USD" && (
         <p className="text-xs text-text-muted">
           Prices are shown in USD. Paystack will charge the {chargeCurrency} equivalent at checkout.

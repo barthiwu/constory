@@ -15,6 +15,9 @@ import { getPaystackPlanCode } from "@/lib/billing/paystack-plan-codes";
 
 type DB = SupabaseClient<Database>;
 
+/** A billing action that can't apply to a prepaid (bank transfer) plan; the message is safe to show the user. */
+export class PrepaidPlanError extends Error {}
+
 export async function getSubscription(supabase: DB, ownerId: string): Promise<Subscription | null> {
   const { data, error } = await supabase
     .from("subscriptions")
@@ -26,7 +29,7 @@ export async function getSubscription(supabase: DB, ownerId: string): Promise<Su
     // the live Paystack subscription) should use getSubscriptionAdmin
     // below instead.
     .select(
-      "id, owner_id, plan_id, status, billing_interval, current_period_start, current_period_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, provider, provider_customer_id, provider_subscription_id, created_at, updated_at"
+      "id, owner_id, plan_id, status, billing_interval, current_period_start, current_period_end, cancel_at_period_end, pending_plan_id, pending_billing_interval, renewal_mode, provider, provider_customer_id, provider_subscription_id, created_at, updated_at"
     )
     .eq("owner_id", ownerId)
     .maybeSingle();
@@ -357,6 +360,8 @@ export async function applyPlanChange(
  */
 export async function cancelSubscription(supabase: DB, ownerId: string): Promise<void> {
   void supabase; // kept for BillingProvider interface symmetry — see changePlan's identical note
+  const current = await getSubscriptionAdmin(createAdminClient(), ownerId);
+  if (current?.renewal_mode === "manual" && current.plan_id !== "free") return; // a prepaid plan already ends on its own
   const { error } = await createAdminClient().rpc("set_subscription_pending_change", {
     p_owner_id: ownerId,
     p_cancel_at_period_end: true,
@@ -391,7 +396,11 @@ export async function scheduleDowngrade(ownerId: string, planId: PlanId, billing
 
 /** Reverses a pending cancellation OR a pending downgrade before the period ends — "Keep my plan" is generic across both. */
 export async function resumeSubscription(supabase: DB, ownerId: string): Promise<void> {
-  void supabase;
+  const current = await getSubscriptionAdmin(createAdminClient(), ownerId);
+  if (current?.renewal_mode === "manual" && current.plan_id !== "free") {
+    // Nothing can renew a prepaid plan, so "keep it" has no meaning -- the customer has to pay again.
+    throw new PrepaidPlanError("This plan was paid for by bank transfer and doesn't renew automatically. Renew it to extend it.");
+  }
   const { error } = await createAdminClient().rpc("set_subscription_pending_change", {
     p_owner_id: ownerId,
     p_cancel_at_period_end: false,
@@ -504,6 +513,8 @@ export async function activatePaidPlanFromPayment(
     // turned around and upgraded again before it took effect).
     pending_plan_id: null,
     pending_billing_interval: null,
+    // A card subscription renews itself, even if the account previously held a prepaid (bank transfer) plan.
+    renewal_mode: "auto",
     provider,
   };
   if (providerIds.customerCode) subscriptionUpdate.provider_customer_id = providerIds.customerCode;
@@ -528,6 +539,83 @@ export async function activatePaidPlanFromPayment(
   await lockExcessWorkspaces(adminSupabase, ownerId, getPlanEntitlements(planId).brands);
 }
 
+/**
+ * Activates a PREPAID plan from a verified one-off Paystack payment (bank transfer). There is no
+ * recurring subscription behind it: the plan is paid through `current_period_end` and then drops
+ * to Free, so the row is written as "cancelling at period end, moving to Free" with
+ * `renewal_mode = 'manual'` -- the same scheduled-transition mechanism a cancelled card plan uses,
+ * which getResolvedSubscription already applies lazily when the period elapses.
+ *
+ * Paying again for the SAME plan while it is still running extends it from its current end
+ * (the customer never loses days they already paid for) and leaves their credits alone; any
+ * other purchase (new plan, upgrade, or paying after it lapsed) starts a fresh period from now
+ * with a fresh credit allowance.
+ *
+ * Any stored card token / Paystack subscription ids are cleared: nothing may charge this account
+ * again behind the customer's back. The caller disables a live Paystack subscription first.
+ */
+export async function activatePrepaidPlanFromPayment(
+  adminSupabase: DB,
+  ownerId: string,
+  planId: Exclude<PlanId, "free">,
+  billingInterval: BillingInterval,
+  providerIds: { customerCode?: string | null } = {},
+  now: Date = new Date(),
+): Promise<{ extended: boolean; periodEnd: string }> {
+  const { data: existing, error: readError } = await adminSupabase
+    .from("subscriptions")
+    .select("plan_id, renewal_mode, current_period_start, current_period_end")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (readError) throw readError;
+
+  const extended =
+    !!existing &&
+    existing.renewal_mode === "manual" &&
+    existing.plan_id === planId &&
+    new Date(existing.current_period_end).getTime() > now.getTime();
+
+  const periodStart = extended ? new Date(existing.current_period_start) : now;
+  const periodEnd = nextPeriodEnd(billingInterval, extended ? new Date(existing.current_period_end) : now);
+
+  const update: Partial<Subscription> = {
+    plan_id: planId,
+    status: "active",
+    billing_interval: billingInterval,
+    current_period_start: periodStart.toISOString(),
+    current_period_end: periodEnd.toISOString(),
+    cancel_at_period_end: true,
+    pending_plan_id: "free",
+    pending_billing_interval: null,
+    renewal_mode: "manual",
+    provider: "paystack",
+    provider_subscription_id: null,
+    provider_subscription_token: null,
+    provider_authorization_code: null,
+  };
+  if (providerIds.customerCode) update.provider_customer_id = providerIds.customerCode;
+
+  const { error: subErr } = await adminSupabase.from("subscriptions").update(update).eq("owner_id", ownerId);
+  if (subErr) throw subErr;
+
+  if (!extended) {
+    const { error: balErr } = await adminSupabase
+      .from("credit_balances")
+      .update({
+        period_start: now.toISOString(),
+        period_end: nextPeriodEnd("monthly", now).toISOString(),
+        monthly_allocation: getPlanCreditAllowance(planId),
+        credits_used: 0,
+      })
+      .eq("owner_id", ownerId);
+    if (balErr) throw balErr;
+
+    await lockExcessWorkspaces(adminSupabase, ownerId, getPlanEntitlements(planId).brands);
+  }
+
+  return { extended, periodEnd: periodEnd.toISOString() };
+}
+
 /** Marks a subscription past_due from a failed-payment webhook. Never deletes data (spec §25). */
 export async function markSubscriptionPastDue(adminSupabase: DB, ownerId: string): Promise<void> {
   const { error } = await adminSupabase.from("subscriptions").update({ status: "past_due" }).eq("owner_id", ownerId);
@@ -543,11 +631,15 @@ export async function markSubscriptionCancelledByProvider(adminSupabase: DB, own
   // "Your plan will move to Creator").
   const { data: sub, error: readError } = await adminSupabase
     .from("subscriptions")
-    .select("pending_plan_id")
+    .select("pending_plan_id, renewal_mode")
     .eq("owner_id", ownerId)
     .maybeSingle();
   if (readError) throw readError;
   if (sub?.pending_plan_id && sub.pending_plan_id !== "free") return;
+  // A prepaid (bank transfer) plan has no Paystack subscription of its own; the disable that
+  // fires here is the one we issued when it replaced a card subscription. It stays "active"
+  // until the period it paid for ends.
+  if (sub?.renewal_mode === "manual") return;
 
   const { error } = await adminSupabase.from("subscriptions").update({ status: "cancelled", cancel_at_period_end: true }).eq("owner_id", ownerId);
   if (error) throw error;

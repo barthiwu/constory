@@ -23,6 +23,12 @@ export interface CheckoutResult {
   redirectUrl?: string;
 }
 
+/**
+ * How a paid plan is paid for. "card" is a recurring subscription that renews itself; "bank_transfer"
+ * is a one-off payment (Paystack only) for the period bought, renewed by paying again.
+ */
+export type PaymentMethod = "card" | "bank_transfer";
+
 export interface BillingProvider {
   readonly name: "none" | "manual" | "paystack" | "stripe";
   /**
@@ -30,7 +36,14 @@ export interface BillingProvider {
    * need it to create a checkout session (Paystack); providers that never
    * collect payment (Manual, Free) ignore it.
    */
-  createCheckout(supabase: DB, ownerId: string, email: string, planId: PlanId, billingInterval: BillingInterval): Promise<CheckoutResult>;
+  createCheckout(
+    supabase: DB,
+    ownerId: string,
+    email: string,
+    planId: PlanId,
+    billingInterval: BillingInterval,
+    method?: PaymentMethod,
+  ): Promise<CheckoutResult>;
   /** Cancels a paid subscription — remains active until the current period ends (spec §29). */
   cancelSubscription(supabase: DB, ownerId: string): Promise<void>;
   /** Reverses a pending cancellation. */

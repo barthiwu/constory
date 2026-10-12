@@ -2,13 +2,12 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
 import {
-  activatePaidPlanFromPayment,
   markSubscriptionPastDue,
   markSubscriptionCancelledByProvider,
   recordBillingEvent,
   releaseBillingEvent,
 } from "@/services/billing-service";
-import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
+import { applyVerifiedPaystackPayment } from "@/lib/billing/paystack-provider";
 import { checkPaymentMatchesPlan, parsePaidPlanSelection } from "@/lib/billing/payment-guard";
 import { expectedPaymentFor, chargeIdempotencyKey } from "@/lib/billing/payment-expectations";
 
@@ -97,6 +96,7 @@ export async function POST(request: Request) {
               amount: typeof data.amount === "number" ? data.amount : null,
               currency: typeof data.currency === "string" ? data.currency : null,
               plan: data.plan,
+              channel: typeof data.channel === "string" ? data.channel : null,
             },
             expectedPaymentFor(planId, billingInterval),
           );
@@ -112,31 +112,14 @@ export async function POST(request: Request) {
             break;
           }
 
-          // `data.plan` on a charge.success event is Paystack's *plan code*
-          // (already known to us via lib/billing/paystack-plan-codes.ts),
-          // not a subscription code — Paystack creates the recurring
-          // Subscription object asynchronously from a plan-code charge, so
-          // it's resolved separately (best-effort: cancelSubscription/
-          // scheduleDowngrade fall back to the same lookup later if it's
-          // not there yet).
-          let subscriptionCode: string | null = null;
-          let subscriptionToken: string | null = null;
-          if (customerCode) {
-            try {
-              const resolved = await resolveActiveProviderSubscription(customerCode);
-              if (resolved) {
-                subscriptionCode = resolved.subscriptionCode;
-                subscriptionToken = resolved.emailToken;
-              }
-            } catch {
-              // Non-fatal — see the comment above.
-            }
-          }
-
-          await activatePaidPlanFromPayment(adminSupabase, ownerId, planId, billingInterval, {
+          // A charge against a Paystack plan is a card subscription; one without a plan is a bank
+          // transfer (prepaid). Same code path as verify-on-return -- see applyVerifiedPaystackPayment.
+          await applyVerifiedPaystackPayment(adminSupabase, {
+            ownerId,
+            planId,
+            billingInterval,
+            plan: data.plan,
             customerCode,
-            subscriptionCode,
-            subscriptionToken,
             authorizationCode: typeof authorization.authorization_code === "string" ? authorization.authorization_code : null,
           });
         }

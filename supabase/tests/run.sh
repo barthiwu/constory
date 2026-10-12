@@ -67,13 +67,15 @@ for f in "$MIGRATIONS_DIR"/00[1-9][0-9]_*.sql; do
 done
 shopt -u nullglob
 
-for f in "$SCRIPT_DIR"/0[2-9]_*.sql; do
+shopt -s nullglob
+for f in "$SCRIPT_DIR"/0[2-9]_*.sql "$SCRIPT_DIR"/[1-9][0-9]_*.sql; do
   echo ""
   echo "############################################################"
   echo "## $(basename "$f")"
   echo "############################################################"
   run_psql "$f"
 done
+shopt -u nullglob
 
 echo ""
 echo "== Done. Review the \\echo lines above against their stated expectations. =="

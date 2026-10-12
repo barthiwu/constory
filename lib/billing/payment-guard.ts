@@ -10,6 +10,9 @@
 
 import type { BillingInterval, PlanId } from "@/types/database";
 
+/** A plan-less (bank transfer) payment must cover at least this fraction of the expected price. */
+export const ONE_OFF_MIN_FRACTION = 0.95;
+
 export type PaidPlanId = Exclude<PlanId, "free">;
 
 const PAID_PLANS: readonly string[] = ["creator", "pro"];
@@ -35,11 +38,18 @@ export function extractPlanCode(plan: unknown): string | null {
   return null;
 }
 
+/** True when a Paystack transaction was NOT made against a plan, i.e. it is a one-off (bank transfer) payment. */
+export function isOneOffPayment(plan: unknown): boolean {
+  return extractPlanCode(plan) === null;
+}
+
 export interface PaymentFacts {
   /** Minor units, as Paystack reports it. */
   amount: number | null | undefined;
   currency: string | null | undefined;
   plan: unknown;
+  /** Paystack's `channel` ("card", "bank_transfer", ...). Required to be "bank_transfer" for a plan-less payment. */
+  channel?: string | null;
 }
 
 export interface PaymentExpectations {
@@ -56,9 +66,13 @@ export type PaymentCheck = { ok: true } | { ok: false; reason: string };
  * - If the transaction carries a plan code, it must be the code for the claimed plan/interval
  *   (Paystack charges the plan's own configured amount in that case, so the amount isn't compared
  *   -- it can legitimately drift from our FX estimate).
- * - If it carries NO plan code (a one-off charge, which our own checkout never creates), the
- *   amount must cover at least half the expected price. Half, not exact: tolerates FX drift but
- *   still rejects "pay 100 kobo, get Pro".
+ * - If it carries NO plan code it is a one-off payment (our bank transfer checkout; there is no
+ *   recurring subscription behind it). It must have been paid by bank transfer (the only one-off
+ *   channel our checkout offers, so a plan-less payment on any other channel is not ours), the
+ *   currency must be present and right, and the amount
+ *   must cover at least 95% of the price OUR server computes for the claimed plan/interval. Not
+ *   exact: tolerates a little FX drift between initializing and paying, but still rejects
+ *   "pay 100 kobo, get Pro" and "pay for Creator, claim Pro".
  */
 export function checkPaymentMatchesPlan(facts: PaymentFacts, expected: PaymentExpectations): PaymentCheck {
   if (facts.currency && facts.currency.toUpperCase() !== expected.chargeCurrency.toUpperCase()) {
@@ -72,13 +86,19 @@ export function checkPaymentMatchesPlan(facts: PaymentFacts, expected: PaymentEx
     return { ok: true };
   }
 
+  if (facts.channel !== "bank_transfer") {
+    return { ok: false, reason: "a payment without a plan must be a bank transfer" };
+  }
+  if (!facts.currency) {
+    return { ok: false, reason: "a one-off payment must report its currency" };
+  }
   if (typeof facts.amount !== "number" || !Number.isFinite(facts.amount) || facts.amount <= 0) {
     return { ok: false, reason: "payment has neither a plan code nor a usable amount" };
   }
   if (expected.expectedAmountMinor === null) {
     return { ok: false, reason: "cannot verify the amount paid" };
   }
-  if (facts.amount < expected.expectedAmountMinor * 0.5) {
+  if (facts.amount < expected.expectedAmountMinor * ONE_OFF_MIN_FRACTION) {
     return { ok: false, reason: "amount paid is below the plan price" };
   }
   return { ok: true };

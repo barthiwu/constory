@@ -222,6 +222,11 @@ export type Subscription = {
   /** Plan the account will move to when current_period_end is reached (a scheduled downgrade, including "Cancel" -> free). Null when nothing is scheduled. */
   pending_plan_id: PlanId | null;
   pending_billing_interval: BillingInterval | null;
+  /**
+   * "auto": a card subscription Paystack renews by itself. "manual": a prepaid plan (bank transfer) that runs for the
+   * period that was paid for and then drops to Free unless the customer pays again. Always "auto" on Free.
+   */
+  renewal_mode: "auto" | "manual";
   provider: BillingProviderName;
   provider_customer_id: string | null;
   provider_subscription_id: string | null;
