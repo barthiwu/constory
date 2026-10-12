@@ -2,7 +2,7 @@ import type { BillingInterval } from "@/types/database";
 import type { PaidPlanId, PaymentExpectations } from "@/lib/billing/payment-guard";
 import { priceForInterval } from "@/lib/billing/plans";
 import { getPaystackPlanCode } from "@/lib/billing/paystack-plan-codes";
-import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits } from "@/lib/billing/currency";
+import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, usdCentsToTransferMinorUnits } from "@/lib/billing/currency";
 
 /** What OUR server expects a payment for (plan, interval) to look like. Never throws: unknowns become null. */
 export function expectedPaymentFor(planId: PaidPlanId, interval: BillingInterval): PaymentExpectations {
@@ -24,4 +24,9 @@ export function expectedPaymentFor(planId: PaidPlanId, interval: BillingInterval
 /** One idempotency key per Paystack charge, shared by the webhook and the verify-on-return path so a charge is only ever applied once. */
 export function chargeIdempotencyKey(reference: string): string {
   return `paystack_charge:${reference}`;
+}
+
+/** The exact amount (minor units, whole naira) a bank transfer for (plan, interval) must be sent for. */
+export function transferAmountFor(planId: PaidPlanId, interval: BillingInterval): number {
+  return usdCentsToTransferMinorUnits(priceForInterval(planId, interval));
 }

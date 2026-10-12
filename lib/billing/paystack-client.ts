@@ -70,6 +70,10 @@ export interface InitializeTransactionParams {
     /** Audit trail: the USD price this actually corresponds to, and the FX rate used to convert it — see lib/billing/currency.ts. */
     usd_amount_cents?: number;
     fx_rate_to_charge_currency?: number;
+    /** Signed quote for a bank transfer (see lib/billing/transfer-quote.ts): the exact amount that must be paid. */
+    quote_amount?: number;
+    quote_issued_at?: number;
+    quote_sig?: string;
   };
 }
 
@@ -91,6 +95,28 @@ export async function initializeTransaction(params: InitializeTransactionParams)
       ...(params.channels && params.channels.length > 0 ? { channels: params.channels } : {}),
       callback_url: params.callbackUrl,
       metadata: params.metadata,
+    }),
+  });
+  return data;
+}
+
+export interface CreateRefundResult {
+  status: string;
+  /** Paystack's refund object id / reference, when returned. */
+  id?: number | string;
+}
+
+/**
+ * POST /refund -- full refund of a successful transaction (omit `amount`). Paystack sends it to the account
+ * the money came from; if it can't, the refund waits in `needs-attention` for the customer's bank details
+ * (webhook `refund.needs-attention`).
+ */
+export async function createRefund(transactionReference: string, note?: string): Promise<CreateRefundResult> {
+  const { data } = await paystackRequest<{ data: CreateRefundResult }>("/refund", {
+    method: "POST",
+    body: JSON.stringify({
+      transaction: transactionReference,
+      ...(note ? { merchant_note: note, customer_note: note } : {}),
     }),
   });
   return data;

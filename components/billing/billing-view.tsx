@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { CreditMeter } from "@/components/billing/credit-meter";
-import { PlanPicker } from "@/components/billing/plan-picker";
+import { PlanPicker, type ChargeAmounts } from "@/components/billing/plan-picker";
 import { ManageActiveBrands } from "@/components/billing/manage-active-brands";
 import { cancelSubscriptionAction, resumeSubscriptionAction } from "@/app/app/(shell)/settings/billing/actions";
 import { PLANS, BILLING_INTERVAL_LABEL } from "@/lib/billing/plans";
@@ -16,6 +16,8 @@ import type { Subscription, CreditBalance, BillingProviderName } from "@/types/d
 const PAYMENT_RETURN_TOAST: Record<string, { title: string; description?: string; variant: "success" | "error" | "warning" }> = {
   success: { title: "Payment verified", description: "Your plan has been updated.", variant: "success" },
   payment_mismatch: { title: "Payment didn't match", description: "We couldn't match this payment to the plan you chose, so no changes were made. Contact support with your payment reference.", variant: "error" },
+  wrong_amount_refunded: { title: "Wrong amount received", description: "Your plan wasn't activated because the transfer didn't match the price exactly. A refund has been started and should reach you within a day or two.", variant: "warning" },
+  wrong_amount_refund_failed: { title: "Wrong amount received", description: "Your plan wasn't activated because the transfer didn't match the price exactly. We couldn't start the refund automatically — contact support with your payment reference.", variant: "error" },
   not_successful: { title: "Payment not completed", description: "No changes were made to your plan.", variant: "warning" },
   owner_mismatch: { title: "Couldn't verify payment", description: "This payment reference doesn't match your account.", variant: "error" },
   incomplete_metadata: { title: "Payment verified, but incomplete", description: "Contact support — we couldn't tell which plan this was for.", variant: "warning" },
@@ -43,6 +45,7 @@ export function BillingView({
   brandLimit,
   providerName,
   chargeCurrency,
+  chargeAmounts,
 }: {
   subscription: Subscription | null;
   creditBalance: CreditBalance | null;
@@ -51,6 +54,8 @@ export function BillingView({
   providerName: BillingProviderName;
   /** Currency Paystack actually charges in (prices are always shown in USD) — see lib/billing/currency.ts. */
   chargeCurrency: string;
+  /** Per paid plan and interval: what is charged in `chargeCurrency`, in minor units. Null when charging in USD. */
+  chargeAmounts: ChargeAmounts | null;
 }) {
   const { toast } = useToast();
   const router = useRouter();
@@ -177,6 +182,7 @@ export function BillingView({
             currentInterval={subscription?.billing_interval ?? "monthly"}
             providerName={providerName}
             chargeCurrency={chargeCurrency}
+            chargeAmounts={chargeAmounts}
             isPrepaid={!isFree && subscription?.renewal_mode === "manual"}
             currentPeriodEnd={subscription?.current_period_end ?? null}
           />

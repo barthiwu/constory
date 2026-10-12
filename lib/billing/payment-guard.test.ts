@@ -1,4 +1,5 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { createTransferQuote } from "@/lib/billing/transfer-quote";
 import { checkPaymentMatchesPlan, extractPlanCode, isOneOffPayment, parsePaidPlanSelection } from "@/lib/billing/payment-guard";
 
 const expected = { planCode: "PLN_pro_monthly", expectedAmountMinor: 3_500_000, chargeCurrency: "NGN" };
@@ -43,23 +44,77 @@ describe("checkPaymentMatchesPlan", () => {
     expect(checkPaymentMatchesPlan({ amount: 10_000, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
   });
 
-  it("accepts a plan-less (bank transfer) charge that covers the price within FX tolerance", () => {
-    expect(checkPaymentMatchesPlan({ amount: 3_500_000, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(true);
-    expect(checkPaymentMatchesPlan({ amount: 3_340_000, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(true); // 95.4%
-  });
+  describe("plan-less bank transfer (signed quote, exact amount)", () => {
+    const NOW = 1_800_000_000_000;
+    const claim = { userId: "u1", planId: "pro", billingInterval: "monthly" };
+    const quote = () => ({ ...createTransferQuote({ ...claim, amountMinor: 2_240_500 }, NOW), user_id: "u1" });
+    const facts = (over: Record<string, unknown> = {}) => ({
+      amount: 2_240_500,
+      currency: "NGN",
+      plan: null,
+      channel: "bank_transfer",
+      metadata: quote(),
+      claim,
+      nowMs: NOW + 60_000,
+      ...over,
+    });
 
-  it("rejects a plan-less charge that is more than 5% short (e.g. paid for Creator, claiming Pro)", () => {
-    expect(checkPaymentMatchesPlan({ amount: 3_000_000, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
-    expect(checkPaymentMatchesPlan({ amount: 1_800_000, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
-  });
+    beforeEach(() => {
+      process.env.PAYSTACK_SECRET_KEY = "sk_test_quote_key";
+    });
 
-  it("rejects a plan-less payment made on any channel other than bank transfer", () => {
-    expect(checkPaymentMatchesPlan({ amount: 3_500_000, currency: "NGN", plan: null, channel: "card" }, expected).ok).toBe(false);
-    expect(checkPaymentMatchesPlan({ amount: 3_500_000, currency: "NGN", plan: null }, expected).ok).toBe(false);
-  });
+    it("accepts exactly the quoted amount", () => {
+      expect(checkPaymentMatchesPlan(facts(), expected).ok).toBe(true);
+    });
 
-  it("requires a one-off payment to report its currency", () => {
-    expect(checkPaymentMatchesPlan({ amount: 3_500_000, currency: null, plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
+    it("rejects 5 naira short and asks for a refund (₦22,405 quoted, ₦22,400 sent)", () => {
+      const r = checkPaymentMatchesPlan(facts({ amount: 2_240_000 }), expected);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.refund).toBe(true);
+    });
+
+    it("rejects an overpayment and asks for a refund", () => {
+      const r = checkPaymentMatchesPlan(facts({ amount: 2_240_600 }), expected);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.refund).toBe(true);
+    });
+
+    it("rejects, WITHOUT a refund, a payment that is not one of our quotes", () => {
+      for (const metadata of [null, {}, { quote_amount: 2_240_500, quote_issued_at: NOW, quote_sig: "0".repeat(64) }, { ...quote(), quote_sig: "zz" }]) {
+        const r = checkPaymentMatchesPlan(facts({ metadata }), expected);
+        expect(r.ok).toBe(false);
+        expect(!r.ok && r.refund).toBeFalsy();
+      }
+    });
+
+    it("a forged cheaper quote cannot be signed without the server secret", () => {
+      const cheap = { quote_amount: 100, quote_issued_at: NOW, quote_sig: quote().quote_sig };
+      const r = checkPaymentMatchesPlan(facts({ amount: 100, metadata: cheap }), expected);
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.refund).toBeFalsy();
+    });
+
+    it("a quote for one plan/user can't be replayed for another", () => {
+      expect(checkPaymentMatchesPlan(facts({ claim: { ...claim, planId: "creator" } }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ claim: { ...claim, userId: "someone-else" } }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ claim: { ...claim, billingInterval: "annual" } }), expected).ok).toBe(false);
+    });
+
+    it("rejects an expired quote", () => {
+      expect(checkPaymentMatchesPlan(facts({ nowMs: NOW + 25 * 60 * 60 * 1000 }), expected).ok).toBe(false);
+    });
+
+    it("rejects any channel other than bank_transfer, a missing currency, and a missing claim", () => {
+      expect(checkPaymentMatchesPlan(facts({ channel: "card" }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ channel: null }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ currency: null }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ claim: undefined }), expected).ok).toBe(false);
+    });
+
+    it("rejects an unusable amount", () => {
+      expect(checkPaymentMatchesPlan(facts({ amount: null }), expected).ok).toBe(false);
+      expect(checkPaymentMatchesPlan(facts({ amount: 0 }), expected).ok).toBe(false);
+    });
   });
 
   it("rejects the wrong currency", () => {
@@ -69,7 +124,6 @@ describe("checkPaymentMatchesPlan", () => {
   it("rejects when nothing can be verified", () => {
     expect(checkPaymentMatchesPlan({ amount: null, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
     expect(checkPaymentMatchesPlan({ amount: 0, currency: "NGN", plan: null, channel: "bank_transfer" }, expected).ok).toBe(false);
-    expect(checkPaymentMatchesPlan({ amount: 5_000_000, currency: "NGN", plan: null, channel: "bank_transfer" }, { ...expected, expectedAmountMinor: null }).ok).toBe(false);
   });
 });
 

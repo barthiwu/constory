@@ -7,7 +7,7 @@ import {
   recordBillingEvent,
   releaseBillingEvent,
 } from "@/services/billing-service";
-import { applyVerifiedPaystackPayment } from "@/lib/billing/paystack-provider";
+import { applyVerifiedPaystackPayment, refundWrongAmountPayment } from "@/lib/billing/paystack-provider";
 import { checkPaymentMatchesPlan, parsePaidPlanSelection } from "@/lib/billing/payment-guard";
 import { expectedPaymentFor, chargeIdempotencyKey } from "@/lib/billing/payment-expectations";
 
@@ -97,9 +97,24 @@ export async function POST(request: Request) {
               currency: typeof data.currency === "string" ? data.currency : null,
               plan: data.plan,
               channel: typeof data.channel === "string" ? data.channel : null,
+              metadata,
+              claim: { userId: ownerId, planId, billingInterval },
             },
             expectedPaymentFor(planId, billingInterval),
           );
+          if (!verdict.ok && verdict.refund && typeof data.reference === "string") {
+            // Ours, successful, but the wrong amount: nothing is activated and the money is sent back.
+            const refund = await refundWrongAmountPayment(adminSupabase, { ownerId, reference: data.reference, detail: verdict.reason });
+            await recordBillingEvent(adminSupabase, {
+              provider: "paystack",
+              providerEventId: `${eventId}:wrong_amount`,
+              eventType,
+              ownerId,
+              status: refund.started ? "processed" : "error",
+              detail: `Wrong transfer amount for ${planId}/${billingInterval}: ${verdict.reason}. Refund ${refund.started ? "requested" : "FAILED - refund manually"}.`,
+            }).catch(() => {});
+            break;
+          }
           if (!verdict.ok) {
             await recordBillingEvent(adminSupabase, {
               provider: "paystack",

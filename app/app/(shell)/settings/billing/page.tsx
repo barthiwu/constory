@@ -8,6 +8,7 @@ import { getResolvedSubscription, getCreditBalance, listOwnedWorkspaces } from "
 import { getPlanEntitlements } from "@/lib/billing/plans";
 import { getBillingProvider } from "@/lib/billing/provider";
 import { CHARGE_CURRENCY } from "@/lib/billing/currency";
+import { transferAmountFor } from "@/lib/billing/payment-expectations";
 import { verifyAndActivatePaymentReference } from "@/lib/billing/paystack-provider";
 
 export const metadata: Metadata = { title: "Billing — Constory" };
@@ -48,6 +49,18 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
   const brandLimit = getPlanEntitlements(planId).brands;
   const providerName = getBillingProvider().name;
 
+  // What each paid plan costs in the currency Paystack actually charges (whole units, minor-unit integers),
+  // computed here because the exchange rate lives in a server-only env var. Null when we charge in USD.
+  const chargeAmounts =
+    CHARGE_CURRENCY.toUpperCase() === "USD"
+      ? null
+      : (Object.fromEntries(
+          (["creator", "pro"] as const).map((plan) => [
+            plan,
+            { monthly: transferAmountFor(plan, "monthly"), quarterly: transferAmountFor(plan, "quarterly"), annual: transferAmountFor(plan, "annual") },
+          ]),
+        ) as Record<"creator" | "pro", Record<"monthly" | "quarterly" | "annual", number>>);
+
   return (
     <div className="grid gap-6">
       <PageHeader title="Settings" description="Manage your profile, workspace, and account." />
@@ -59,6 +72,7 @@ export default async function BillingPage({ searchParams }: { searchParams: Prom
         brandLimit={brandLimit}
         providerName={providerName}
         chargeCurrency={CHARGE_CURRENCY}
+        chargeAmounts={chargeAmounts}
       />
     </div>
   );

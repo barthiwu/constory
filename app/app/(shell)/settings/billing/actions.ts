@@ -8,6 +8,7 @@ import { setActiveWorkspaces, getResolvedSubscription, PrepaidPlanError } from "
 import { getPlanEntitlements, getPlan, isUpgrade } from "@/lib/billing/plans";
 import type { PlanId, BillingInterval } from "@/types/database";
 import type { PaymentMethod } from "@/lib/billing/provider";
+import { transferAmountFor } from "@/lib/billing/payment-expectations";
 
 export interface ActionResult {
   error?: string;
@@ -42,6 +43,8 @@ export async function changePlanAction(
   planId: PlanId,
   billingInterval: BillingInterval,
   method: PaymentMethod = "card",
+  /** For bank transfer: the amount (minor units) the customer was shown. Refused if the price changed since. */
+  quotedAmountMinor?: number,
 ): Promise<ActionResult & { message?: string; redirectUrl?: string; scheduled?: boolean }> {
   const { supabase, user } = await requireUser();
   if (!user?.email) return { error: "Not authenticated." };
@@ -64,6 +67,10 @@ export async function changePlanAction(
       }
       if (planId === currentPlanId && !isPrepaid) {
         return { error: "Your plan renews automatically by card. Use bank transfer if you'd like to upgrade." };
+      }
+      // The customer was shown a naira amount; never send them to pay a different one without telling them.
+      if (typeof quotedAmountMinor === "number" && quotedAmountMinor !== transferAmountFor(planId, billingInterval)) {
+        return { error: "The price in naira has been updated. Please review the new amount and try again." };
       }
     } else if (isPrepaid && planId !== currentPlanId) {
       if (planId === "free") {

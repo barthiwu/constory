@@ -64,3 +64,26 @@ export function usdCentsToChargeCurrencyMinorUnits(usdCents: number): number {
 export function currentUsdToChargeCurrencyRate(): number {
   return usdToChargeCurrencyRate();
 }
+
+/**
+ * The amount a customer is asked to TRANSFER for a USD price, in minor units, rounded UP to a whole
+ * unit of the charge currency (whole naira). A transfer must be sent for exactly this amount, so it
+ * has to be something a person can type into a banking app without kobo: 22,405, not 22,404.73.
+ * The same function drives what the billing page shows, what checkout asks Paystack for, and what
+ * the payment is later checked against.
+ */
+export function usdCentsToTransferMinorUnits(usdCents: number): number {
+  const usd = usdCents / 100;
+  const wholeUnits = Math.ceil(usd * usdToChargeCurrencyRate() - 1e-9);
+  return wholeUnits * 100;
+}
+
+/** "₦22,405" -- whole units, no decimals. Safe on the client (pure). Falls back to "CODE 22,405" for unknown currencies. */
+export function formatMinorUnits(minor: number, currency: string): string {
+  const whole = Math.round(minor / 100);
+  try {
+    return new Intl.NumberFormat("en-NG", { style: "currency", currency: currency.toUpperCase(), maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(whole);
+  } catch {
+    return `${currency.toUpperCase()} ${whole.toLocaleString("en-US")}`;
+  }
+}

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { formatMinorUnits } from "@/lib/billing/currency";
 import {
   PLANS,
   PLAN_ORDER,
@@ -23,11 +25,18 @@ import type { PaymentMethod } from "@/lib/billing/provider";
 
 const INTERVALS: BillingInterval[] = ["monthly", "quarterly", "annual"];
 
+/** What each paid plan costs in the currency Paystack charges, per interval, in minor units. */
+export type ChargeAmounts = Record<"creator" | "pro", Record<BillingInterval, number>>;
+
+type PaidPlan = "creator" | "pro";
+const INTERVAL_LENGTH: Record<BillingInterval, string> = { monthly: "1 month", quarterly: "3 months", annual: "12 months" };
+
 export function PlanPicker({
   currentPlanId,
   currentInterval,
   providerName,
   chargeCurrency,
+  chargeAmounts = null,
   isPrepaid = false,
   currentPeriodEnd = null,
 }: {
@@ -36,6 +45,8 @@ export function PlanPicker({
   providerName: BillingProviderName;
   /** Currency Paystack actually charges in — prices below are always shown in USD. */
   chargeCurrency: string;
+  /** Naira (or whatever Paystack charges) price per paid plan and interval, in minor units. Null when charging in USD. */
+  chargeAmounts?: ChargeAmounts | null;
   /** The current paid plan was bought by bank transfer: it doesn't renew by itself and is extended by paying again. */
   isPrepaid?: boolean;
   /** When the current period ends (shown on options that only open up after it). */
@@ -43,6 +54,7 @@ export function PlanPicker({
 }) {
   const { toast } = useToast();
   const [interval, setInterval] = useState<BillingInterval>(currentInterval === "monthly" ? "monthly" : currentInterval);
+  const [transferFor, setTransferFor] = useState<PaidPlan | null>(null);
   const [pendingPlan, setPendingPlan] = useState<{ planId: PlanId; method: PaymentMethod } | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -52,12 +64,18 @@ export function PlanPicker({
     ? new Date(currentPeriodEnd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "the current period ends";
 
-  function handleSwitch(planId: PlanId, method: PaymentMethod = "card") {
+  function amountFor(planId: PlanId, i: BillingInterval): number | null {
+    if (!chargeAmounts || planId === "free") return null;
+    return chargeAmounts[planId][i];
+  }
+
+  function handleSwitch(planId: PlanId, method: PaymentMethod = "card", quotedAmountMinor?: number) {
     setPendingPlan({ planId, method });
     startTransition(async () => {
-      const result = await changePlanAction(planId, interval, method);
+      const result = await changePlanAction(planId, interval, method, quotedAmountMinor);
       if (result.error) {
         setPendingPlan(null);
+        setTransferFor(null);
         toast({ title: "Couldn't change plan", description: result.error, variant: "error" });
         return;
       }
@@ -128,6 +146,11 @@ export function PlanPicker({
               <div>
                 <span className="text-xl font-semibold text-text-primary">{formatCents(cents)}</span>
                 <span className="text-xs text-text-secondary">{cents === 0 ? " forever" : interval === "quarterly" ? " / 3mo" : interval === "annual" ? " / yr" : " / mo"}</span>
+                {amountFor(planId, interval) !== null && (
+                  <p className="text-xs text-text-muted">
+                    ≈ {formatMinorUnits(amountFor(planId, interval) as number, chargeCurrency)} {interval === "monthly" ? "per month" : interval === "quarterly" ? "every 3 months" : "per year"}
+                  </p>
+                )}
               </div>
               <p className="text-xs text-text-secondary">{plan.entitlements.aiCreditsPerMonth} AI credits / month</p>
               {lockedUntilEnd ? (
@@ -157,7 +180,7 @@ export function PlanPicker({
                   variant="secondary"
                   loading={isPending && pendingPlan?.planId === planId && pendingPlan.method === "bank_transfer"}
                   disabled={isPending}
-                  onClick={() => handleSwitch(planId, "bank_transfer")}
+                  onClick={() => setTransferFor(planId as PaidPlan)}
                 >
                   <Landmark className="h-3.5 w-3.5" aria-hidden="true" />
                   {renewsByTransfer ? "Renew by bank transfer" : "Pay by bank transfer"}
@@ -182,9 +205,55 @@ export function PlanPicker({
       )}
       {providerName === "paystack" && chargeCurrency !== "USD" && (
         <p className="text-xs text-text-muted">
-          Prices are shown in USD. Paystack will charge the {chargeCurrency} equivalent at checkout.
+          Prices are shown in USD. Card payments are charged in {chargeCurrency} — the ≈ amounts are approximate and Paystack shows the final
+          figure at checkout. A bank transfer is for the exact amount shown before you continue.
         </p>
       )}
+      <Dialog open={transferFor !== null} onOpenChange={(open) => !open && !isPending && setTransferFor(null)}>
+        <DialogContent>
+          {transferFor && (() => {
+            const amount = amountFor(transferFor, interval);
+            const shown = amount !== null ? formatMinorUnits(amount, chargeCurrency) : null;
+            return (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Pay {PLANS[transferFor].name} by bank transfer</DialogTitle>
+                  <DialogDescription>
+                    {BILLING_INTERVAL_LABEL[interval]} · {INTERVAL_LENGTH[interval]} of {PLANS[transferFor].name}
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="rounded-lg border border-border bg-surface-secondary p-4 text-center">
+                  <p className="text-xs text-text-secondary">You will transfer exactly</p>
+                  <p className="text-3xl font-semibold text-text-primary">{shown}</p>
+                </div>
+                <ul className="grid gap-2 text-sm text-text-secondary">
+                  <li>Paystack gives you a one-time account number for this payment, valid for a short time.</li>
+                  <li>
+                    Send exactly {shown}. A different amount — even a few naira short — won&rsquo;t activate your plan: Paystack rejects it and
+                    refunds the money, usually within 24 hours.
+                  </li>
+                  <li>
+                    Your plan activates as soon as the transfer is confirmed and runs for {INTERVAL_LENGTH[interval]}. It doesn&rsquo;t renew by
+                    itself.
+                  </li>
+                </ul>
+                <DialogFooter>
+                  <Button variant="secondary" size="sm" onClick={() => setTransferFor(null)} disabled={isPending}>
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    loading={isPending && pendingPlan?.method === "bank_transfer"}
+                    onClick={() => handleSwitch(transferFor, "bank_transfer", amount ?? undefined)}
+                  >
+                    Continue to Paystack
+                  </Button>
+                </DialogFooter>
+              </>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -22,6 +22,7 @@ import {
 import { getPlanEntitlements, priceForInterval } from "@/lib/billing/plans";
 import {
   initializeTransaction,
+  createRefund,
   verifyTransaction,
   verifyPaystackSignature,
   disableSubscription,
@@ -30,10 +31,11 @@ import {
 } from "@/lib/billing/paystack-client";
 import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
-import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate } from "@/lib/billing/currency";
+import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate, formatMinorUnits } from "@/lib/billing/currency";
+import { createTransferQuote } from "@/lib/billing/transfer-quote";
 import { activatePaidPlanFromPayment, activatePrepaidPlanFromPayment, recordBillingEvent, releaseBillingEvent } from "@/services/billing-service";
 import { checkPaymentMatchesPlan, isOneOffPayment, parsePaidPlanSelection, type PaidPlanId } from "@/lib/billing/payment-guard";
-import { expectedPaymentFor, chargeIdempotencyKey } from "@/lib/billing/payment-expectations";
+import { expectedPaymentFor, chargeIdempotencyKey, transferAmountFor } from "@/lib/billing/payment-expectations";
 import { createAdminClient } from "@/lib/supabase/server";
 import type { BillingProvider, CheckoutResult, PaymentMethod } from "@/lib/billing/provider";
 
@@ -238,9 +240,12 @@ export class PaystackBillingProvider implements BillingProvider {
     }
 
     const usdCents = priceForInterval(planId, billingInterval);
+    // Whole naira, signed into the transaction: the payment is only accepted for exactly this amount.
+    const amountMinor = transferAmountFor(planId, billingInterval);
+    const quote = createTransferQuote({ userId: ownerId, planId, billingInterval, amountMinor });
     const result = await initializeTransaction({
       email,
-      amountCents: usdCentsToChargeCurrencyMinorUnits(usdCents),
+      amountCents: amountMinor,
       currency: CHARGE_CURRENCY,
       channels: ["bank_transfer"],
       callbackUrl: `${appUrl()}/app/settings/billing`,
@@ -253,12 +258,13 @@ export class PaystackBillingProvider implements BillingProvider {
         environment: process.env.NODE_ENV ?? "development",
         usd_amount_cents: usdCents,
         fx_rate_to_charge_currency: currentUsdToChargeCurrencyRate(),
+        ...quote,
       },
     });
 
     return {
       activated: false,
-      message: "Redirecting you to Paystack to pay by bank transfer.",
+      message: `Redirecting you to Paystack. Transfer exactly ${formatMinorUnits(amountMinor, CHARGE_CURRENCY)}.`,
       redirectUrl: result.authorization_url,
     };
   }
@@ -319,7 +325,7 @@ export class PaystackBillingProvider implements BillingProvider {
   }
 }
 
-export type VerifyReturnStatus = "activated" | "already_processed" | "not_successful" | "owner_mismatch" | "incomplete_metadata" | "payment_mismatch";
+export type VerifyReturnStatus = "activated" | "already_processed" | "not_successful" | "owner_mismatch" | "incomplete_metadata" | "payment_mismatch" | "wrong_amount_refunded" | "wrong_amount_refund_failed";
 
 export interface VerifyReturnResult {
   status: VerifyReturnStatus;
@@ -369,9 +375,31 @@ export async function verifyAndActivatePaymentReference(
   // that it was for the plan the (attacker-influenceable) metadata names. Cross-check the plan
   // code / amount actually paid against what our server expects for that plan.
   const verdict = checkPaymentMatchesPlan(
-    { amount: tx.amount, currency: tx.currency, plan: tx.plan, channel: tx.channel ?? null },
+    {
+      amount: tx.amount,
+      currency: tx.currency,
+      plan: tx.plan,
+      channel: tx.channel ?? null,
+      metadata: tx.metadata,
+      claim: { userId: expectedOwnerId, planId: planSlug, billingInterval },
+    },
     expectedPaymentFor(planSlug, billingInterval),
   );
+  if (!verdict.ok && verdict.refund) {
+    const quoted = typeof tx.metadata?.quote_amount === "number" ? tx.metadata.quote_amount : null;
+    const refund = await refundWrongAmountPayment(adminSupabase, { ownerId: expectedOwnerId, reference, detail: verdict.reason });
+    const paidText = formatMinorUnits(tx.amount, tx.currency);
+    const quotedText = quoted !== null ? formatMinorUnits(quoted, tx.currency) : "the quoted amount";
+    return refund.started
+      ? {
+          status: "wrong_amount_refunded",
+          message: `We received ${paidText} but the plan costs exactly ${quotedText}, so it wasn't activated. A refund of ${paidText} has been started and should reach you within a day or two.`,
+        }
+      : {
+          status: "wrong_amount_refund_failed",
+          message: `We received ${paidText} but the plan costs exactly ${quotedText}, so it wasn't activated. We couldn't start the refund automatically -- contact support with reference ${reference} and we'll refund you.`,
+        };
+  }
   if (!verdict.ok) {
     return { status: "payment_mismatch", message: "This payment doesn't match the plan it was made for, so no plan change was made. Contact support with reference " + reference + "." };
   }
@@ -474,4 +502,43 @@ export async function applyVerifiedPaystackPayment(
     authorizationCode: payment.authorizationCode,
   });
   return { prepaid: false };
+}
+
+/**
+ * A verifiably-ours bank transfer arrived for the wrong amount and Paystack nonetheless marked it successful
+ * (for a wrong amount Paystack normally fails the payment and refunds it itself, but a transaction that DID
+ * succeed is money we hold that matches no plan). Nothing is activated; ask Paystack to refund it in full.
+ * Idempotent per reference, so a webhook plus a page reload can't ask twice. A failed request is recorded as
+ * an error event for an operator to settle by hand -- it is never retried automatically.
+ */
+export async function refundWrongAmountPayment(
+  adminSupabase: DB,
+  input: { ownerId: string; reference: string; detail: string },
+): Promise<{ started: boolean; alreadyRequested: boolean }> {
+  const key = `paystack_refund:${input.reference}`;
+  const { alreadyProcessed } = await recordBillingEvent(adminSupabase, {
+    provider: "paystack",
+    providerEventId: key,
+    eventType: "wrong_amount_refund",
+    ownerId: input.ownerId,
+    status: "processed",
+    detail: input.detail,
+  });
+  if (alreadyProcessed) return { started: true, alreadyRequested: true };
+
+  try {
+    await createRefund(input.reference, "Wrong transfer amount - plan not activated");
+    return { started: true, alreadyRequested: false };
+  } catch (err) {
+    await recordBillingEvent(adminSupabase, {
+      provider: "paystack",
+      providerEventId: `${key}:failed:${Date.now()}`,
+      eventType: "wrong_amount_refund",
+      ownerId: input.ownerId,
+      status: "error",
+      detail: `Refund request failed for ${input.reference} -- refund it manually in the Paystack dashboard. ${err instanceof Error ? err.message : ""}`,
+    }).catch(() => {});
+    console.error("[paystack] could not start a refund for a wrong-amount transfer:", input.reference, err);
+    return { started: false, alreadyRequested: false };
+  }
 }
