@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getBillingProvider } from "@/lib/billing/provider";
 import { setActiveWorkspaces, getResolvedSubscription } from "@/services/billing-service";
@@ -10,6 +11,11 @@ import type { PlanId, BillingInterval } from "@/types/database";
 export interface ActionResult {
   error?: string;
 }
+
+const planSelectionSchema = z.object({
+  planId: z.enum(["free", "creator", "pro"]),
+  billingInterval: z.enum(["monthly", "quarterly", "annual"]),
+});
 
 async function requireUser() {
   const supabase = await createClient();
@@ -31,6 +37,9 @@ export async function changePlanAction(
 ): Promise<ActionResult & { message?: string; redirectUrl?: string; scheduled?: boolean }> {
   const { supabase, user } = await requireUser();
   if (!user?.email) return { error: "Not authenticated." };
+
+  // Server Actions are public POST endpoints -- the TS types on these arguments are not enforced at runtime.
+  if (!planSelectionSchema.safeParse({ planId, billingInterval }).success) return { error: "Invalid plan selection." };
 
   try {
     const current = await getResolvedSubscription(supabase, user.id);
@@ -102,6 +111,7 @@ export async function resumeSubscriptionAction(): Promise<ActionResult> {
 export async function setActiveWorkspacesAction(workspaceIds: string[]): Promise<ActionResult> {
   const { supabase, user } = await requireUser();
   if (!user) return { error: "Not authenticated." };
+  if (!z.array(z.string().uuid()).max(100).safeParse(workspaceIds).success) return { error: "Invalid selection." };
 
   try {
     const sub = await getResolvedSubscription(supabase, user.id);

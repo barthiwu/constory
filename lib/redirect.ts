@@ -40,3 +40,29 @@ export function getSafeRedirectPath(
 
   return value;
 }
+
+/**
+ * Validation for the `next` parameter of /auth/confirm (the email-link
+ * handler). That route used to build `${origin}${next}` from the raw query
+ * value, which is an open redirect: `next=@evil.com` yields
+ * `https://constory.app@evil.com` (a userinfo URL that lands on evil.com) and
+ * `next=.evil.com` yields `https://constory.app.evil.com`. Email links are a
+ * classic phishing vector, so only paths the app itself ever puts in a
+ * confirmation link are allowed: /reset-password, anything under /app, and a
+ * team-invite landing page (/invite/<token>).
+ */
+export function getSafeConfirmNextPath(candidate: string | null | undefined, fallback: string = "/reset-password"): string {
+  if (!candidate || typeof candidate !== "string") return fallback;
+  const value = candidate.trim();
+
+  if (value.length === 0 || value.length > 2048) return fallback;
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith("/\\")) return fallback;
+  if (value.includes("://")) return fallback;
+  if (!SAFE_PATH_CHARS.test(value)) return fallback;
+
+  if (/^\/reset-password(\?|$)/.test(value)) return value;
+  if (/^\/app(\/|$|\?)/.test(value)) return value;
+  if (/^\/invite\/[A-Za-z0-9-]{8,64}(\?|$)/.test(value)) return value;
+
+  return fallback;
+}

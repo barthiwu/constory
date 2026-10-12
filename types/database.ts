@@ -545,6 +545,14 @@ export type Database = {
     };
     Views: Record<string, never>;
     Functions: {
+      check_rate_limit: {
+        Args: {
+          p_bucket: string;
+          p_max: number;
+          p_window_seconds: number;
+        };
+        Returns: boolean;
+      };
       is_workspace_admin: {
         Args: {
           target_workspace_id: string;

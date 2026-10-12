@@ -57,6 +57,8 @@ export interface InviteMemberResult extends ActionResult {
 export async function inviteMemberAction(email: string, role: InviteRole): Promise<InviteMemberResult> {
   const parsed = inviteSchema.safeParse({ email, role });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  // Emails are case-insensitive: normalise once so the stored invite and every later comparison agree.
+  parsed.data.email = parsed.data.email.toLowerCase();
 
   const { supabase, user } = await requireUser();
   if (!user) return { error: "Not authenticated." };
@@ -116,6 +118,7 @@ export async function inviteMemberAction(email: string, role: InviteRole): Promi
 export async function revokeInviteAction(inviteId: string): Promise<ActionResult> {
   const { supabase, user } = await requireUser();
   if (!user) return { error: "Not authenticated." };
+  if (!z.string().uuid().safeParse(inviteId).success) return { error: "Invalid invite." };
 
   try {
     await revokeInvite(supabase, inviteId);
@@ -126,9 +129,16 @@ export async function revokeInviteAction(inviteId: string): Promise<ActionResult
   }
 }
 
+const memberRoleSchema = z.object({ memberUserId: z.string().uuid(), role: z.enum(["admin", "editor", "viewer"]) });
+
 export async function updateMemberRoleAction(memberUserId: string, role: InviteRole): Promise<ActionResult> {
   const { supabase, user } = await requireUser();
   if (!user) return { error: "Not authenticated." };
+
+  // Server Actions are public POST endpoints: the TypeScript union above is not enforced at runtime, so a
+  // forged request could send role "owner". RLS refuses it too, but validate before touching the database.
+  const parsedRole = memberRoleSchema.safeParse({ memberUserId, role });
+  if (!parsedRole.success) return { error: "Invalid role." };
 
   const workspace = await getCurrentWorkspace(supabase);
   if (!workspace) return { error: "No active workspace." };

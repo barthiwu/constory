@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getSafeConfirmNextPath } from "@/lib/redirect";
 
 /**
  * Shared email-link confirmation handler: signup confirmation, password
@@ -28,26 +29,28 @@ import { createClient } from "@/lib/supabase/server";
  *     this is Supabase's now-recommended pattern for SSR apps and is what
  *     the "Confirm signup" email template should point at:
  *     `{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=email&next=...`
- * `next` is only ever appended after this route's own trusted `origin`
- * (never used as a bare redirect target), so it can't be turned into an
- * open redirect to another host regardless of its content.
+ * `next` is run through getSafeConfirmNextPath before use. Simply prefixing
+ * the trusted `origin` is NOT enough: `next=@evil.com` produces
+ * `https://constory.app@evil.com` (userinfo syntax -> evil.com) and
+ * `next=.evil.com` produces a lookalike subdomain. Only an allowlist of
+ * in-app paths is accepted; anything else falls back to /reset-password.
  */
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const tokenHash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") ?? "/reset-password";
+  const next = getSafeConfirmNextPath(searchParams.get("next"));
 
   const supabase = await createClient();
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    if (!error) return NextResponse.redirect(new URL(next, origin));
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    if (!error) return NextResponse.redirect(new URL(next, origin));
   }
 
-  return NextResponse.redirect(`${origin}/login?error=invalid_link`);
+  return NextResponse.redirect(new URL("/login?error=invalid_link", origin));
 }

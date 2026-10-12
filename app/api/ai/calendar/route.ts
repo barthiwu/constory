@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { withinRateLimitFor } from "@/lib/rate-limit";
 import { buildAIContext } from "@/lib/ai/context";
 import { generateCalendarContent } from "@/lib/ai/generate-calendar";
 import { AIGenerationError } from "@/lib/ai/client";
@@ -29,6 +30,13 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  // Per-user burst limit. Credits are only consumed AFTER a successful generation, so without this a
+  // client could fire many parallel requests while it still has credit left (check-then-act race)
+  // and get several paid OpenAI generations for the price of one.
+  if (!(await withinRateLimitFor(`ai:user:${user.id}`, 20, 60))) {
+    return NextResponse.json({ error: "You're generating too quickly. Please wait a moment and try again." }, { status: 429 });
+  }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { withinRateLimitFor } from "@/lib/rate-limit";
 import { buildAIContext } from "@/lib/ai/context";
 import { generateIdeas } from "@/lib/ai/generate-ideas";
 import { AIGenerationError } from "@/lib/ai/client";
@@ -13,10 +14,11 @@ import { consumeAiCredits } from "@/services/billing-service";
 const bodySchema = z.object({
   workspaceId: z.string().uuid(),
   count: z.number().int().min(1).max(20).default(6),
-  focusPillarName: z.string().optional(),
-  platform: z.string().optional(),
-  objective: z.string().optional(),
-  format: z.string().optional(),
+  // Free-text values are interpolated into the model prompt (and cost tokens) -- cap their size.
+  focusPillarName: z.string().max(200).optional(),
+  platform: z.string().max(100).optional(),
+  objective: z.string().max(200).optional(),
+  format: z.string().max(100).optional(),
 });
 
 /**
@@ -31,6 +33,13 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+
+  // Per-user burst limit. Credits are only consumed AFTER a successful generation, so without this a
+  // client could fire many parallel requests while it still has credit left (check-then-act race)
+  // and get several paid OpenAI generations for the price of one.
+  if (!(await withinRateLimitFor(`ai:user:${user.id}`, 20, 60))) {
+    return NextResponse.json({ error: "You're generating too quickly. Please wait a moment and try again." }, { status: 429 });
+  }
 
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "Invalid request." }, { status: 400 });

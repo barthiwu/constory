@@ -31,7 +31,9 @@ import {
 import { resolveActiveProviderSubscription } from "@/lib/billing/paystack-subscription";
 import { getPaystackPlanCode, paystackPlanCodesConfigured } from "@/lib/billing/paystack-plan-codes";
 import { CHARGE_CURRENCY, usdCentsToChargeCurrencyMinorUnits, currentUsdToChargeCurrencyRate } from "@/lib/billing/currency";
-import { activatePaidPlanFromPayment, recordBillingEvent } from "@/services/billing-service";
+import { activatePaidPlanFromPayment, recordBillingEvent, releaseBillingEvent } from "@/services/billing-service";
+import { checkPaymentMatchesPlan, parsePaidPlanSelection } from "@/lib/billing/payment-guard";
+import { expectedPaymentFor, chargeIdempotencyKey } from "@/lib/billing/payment-expectations";
 import { createAdminClient } from "@/lib/supabase/server";
 import type { BillingProvider, CheckoutResult } from "@/lib/billing/provider";
 
@@ -265,7 +267,7 @@ export class PaystackBillingProvider implements BillingProvider {
   }
 }
 
-export type VerifyReturnStatus = "activated" | "already_processed" | "not_successful" | "owner_mismatch" | "incomplete_metadata";
+export type VerifyReturnStatus = "activated" | "already_processed" | "not_successful" | "owner_mismatch" | "incomplete_metadata" | "payment_mismatch";
 
 export interface VerifyReturnResult {
   status: VerifyReturnStatus;
@@ -305,17 +307,31 @@ export async function verifyAndActivatePaymentReference(
     return { status: "owner_mismatch", message: "This payment doesn't belong to your account." };
   }
 
-  const planSlug = tx.metadata?.plan_slug as PlanId | undefined;
-  const billingInterval = tx.metadata?.billing_interval as BillingInterval | undefined;
-  if (!planSlug || !billingInterval) {
+  const selection = parsePaidPlanSelection(tx.metadata?.plan_slug, tx.metadata?.billing_interval);
+  if (!selection) {
     return { status: "incomplete_metadata", message: "We verified the payment but couldn't determine which plan it was for. Contact support with reference " + reference + "." };
+  }
+  const { planId: planSlug, billingInterval } = selection;
+
+  // A successful verify only proves Paystack processed SOME payment under this reference -- not
+  // that it was for the plan the (attacker-influenceable) metadata names. Cross-check the plan
+  // code / amount actually paid against what our server expects for that plan.
+  const verdict = checkPaymentMatchesPlan(
+    { amount: tx.amount, currency: tx.currency, plan: tx.plan },
+    expectedPaymentFor(planSlug, billingInterval),
+  );
+  if (!verdict.ok) {
+    return { status: "payment_mismatch", message: "This payment doesn't match the plan it was made for, so no plan change was made. Contact support with reference " + reference + "." };
   }
 
   // Idempotency: a page refresh, back-button, or the webhook processing the
   // same charge must never allocate credits or reset the period twice.
+  // Same key the webhook uses for this charge (see chargeIdempotencyKey): whichever path gets
+  // here first wins; the other becomes a no-op instead of re-resetting the period's credits.
+  const idempotencyKey = chargeIdempotencyKey(reference);
   const { alreadyProcessed } = await recordBillingEvent(adminSupabase, {
     provider: "paystack",
-    providerEventId: `verify_return:${reference}`,
+    providerEventId: idempotencyKey,
     eventType: "charge.success",
     ownerId: expectedOwnerId,
     status: "processed",
@@ -345,12 +361,19 @@ export async function verifyAndActivatePaymentReference(
     }
   }
 
-  await activatePaidPlanFromPayment(adminSupabase, expectedOwnerId, planSlug, billingInterval, {
-    customerCode: tx.customer.customer_code ?? null,
-    subscriptionCode,
-    subscriptionToken,
-    authorizationCode,
-  });
+  try {
+    await activatePaidPlanFromPayment(adminSupabase, expectedOwnerId, planSlug, billingInterval, {
+      customerCode: tx.customer.customer_code ?? null,
+      subscriptionCode,
+      subscriptionToken,
+      authorizationCode,
+    });
+  } catch (err) {
+    // Don't leave a "processed" claim behind for an activation that didn't happen, or the
+    // user's retry (and the webhook) would both be told it was "already applied".
+    await releaseBillingEvent(adminSupabase, "paystack", idempotencyKey).catch(() => {});
+    throw err;
+  }
 
   return { status: "activated", message: `Payment verified — you're now on the ${planSlug} plan.` };
 }

@@ -605,6 +605,16 @@ export async function recordBillingEvent(adminSupabase: DB, input: RecordBilling
 }
 
 /**
+ * Removes a billing_events idempotency claim so the provider can retry. Used when
+ * processing failed AFTER the event was claimed: leaving the claim in place would make
+ * every retry a no-op ("already processed") and silently strand a paying customer.
+ */
+export async function releaseBillingEvent(adminSupabase: DB, provider: "paystack" | "stripe", providerEventId: string): Promise<void> {
+  const { error } = await adminSupabase.from("billing_events").delete().eq("provider", provider).eq("provider_event_id", providerEventId);
+  if (error) throw error;
+}
+
+/**
  * Lets the owner explicitly choose which workspaces stay active after a
  * downgrade, instead of accepting the deterministic oldest-first default —
  * spec §28's "select the 3 brands you want to keep active." Rejected if the

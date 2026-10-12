@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
+import { withinRateLimit, clientIpFrom, hashKey } from "@/lib/rate-limit";
 import { getOpenAIClient, AI_MODEL_FAST } from "@/lib/ai/client";
 import { supportReplySchema } from "@/lib/support/schemas";
 import { faqContextBlock } from "@/lib/support/faq";
@@ -25,6 +26,22 @@ Rules:
 - Set needs_human to true (and keep your reply short, just acknowledging you're connecting them with the team) whenever: the question is about their specific account, billing, or data that only a person with account access could resolve; they explicitly ask for a human or say this isn't helping; or the answer genuinely isn't covered by the product information given below.
 - Never ask for or accept a password, card number, or other credential in this chat.
 - Respond only with the structured output requested.`;
+
+/**
+ * Abuse limits. This endpoint is deliberately open to signed-out visitors and every message can
+ * cost an OpenAI call, and every NEW chat emails the owner -- so without limits a script could run
+ * up the OpenAI bill and flood the support inbox.
+ */
+const LIMITS = {
+  ipMessages: { max: 20, windowSeconds: 10 * 60 },
+  ipNewChats: { max: 5, windowSeconds: 60 * 60 },
+  globalMessages: { max: 600, windowSeconds: 60 * 60 },
+  globalNewChats: { max: 100, windowSeconds: 60 * 60 },
+  /** Hard cap on messages in a single chat (user + assistant). */
+  maxMessagesPerChat: 60,
+} as const;
+
+const TOO_MANY = "You're sending messages a little too fast. Please wait a few minutes and try again.";
 
 /** Last N turns sent to the model — enough context for a real conversation without unbounded token growth. */
 const HISTORY_LIMIT = 20;
@@ -56,17 +73,38 @@ export async function POST(request: Request) {
     // Not signed in / no session — proceed as an anonymous visitor.
   }
 
+  const ipHash = hashKey(clientIpFrom(request.headers));
+  if (
+    !(await withinRateLimit(admin, `support:ip:${ipHash}`, LIMITS.ipMessages.max, LIMITS.ipMessages.windowSeconds)) ||
+    !(await withinRateLimit(admin, "support:global", LIMITS.globalMessages.max, LIMITS.globalMessages.windowSeconds))
+  ) {
+    return NextResponse.json({ error: TOO_MANY }, { status: 429 });
+  }
+
   let chatId = parsed.data.chatId ?? null;
   let isNewChat = false;
 
   try {
     if (chatId) {
       const existing = await getChat(admin, chatId);
-      if (!existing) {
+      // A chat that belongs to a signed-in user can only be continued by that same user -- the
+      // chat id alone must not be enough to read or append to someone else's conversation.
+      if (!existing || (existing.user_id && existing.user_id !== userId)) {
         chatId = null; // Stale/invalid chatId from the client — start fresh rather than 404ing the widget.
+      } else if ((await listMessages(admin, chatId)).length >= LIMITS.maxMessagesPerChat) {
+        return NextResponse.json(
+          { error: "This chat has reached its length limit. Please start a new one or reach us on WhatsApp." },
+          { status: 429 },
+        );
       }
     }
     if (!chatId) {
+      if (
+        !(await withinRateLimit(admin, `support:new:ip:${ipHash}`, LIMITS.ipNewChats.max, LIMITS.ipNewChats.windowSeconds)) ||
+        !(await withinRateLimit(admin, "support:new:global", LIMITS.globalNewChats.max, LIMITS.globalNewChats.windowSeconds))
+      ) {
+        return NextResponse.json({ error: TOO_MANY }, { status: 429 });
+      }
       const chat = await createChat(admin, { userId, workspaceId: null, pagePath: pagePath ?? null });
       chatId = chat.id;
       isNewChat = true;
