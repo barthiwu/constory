@@ -399,6 +399,18 @@ export async function resumeSubscription(supabase: DB, ownerId: string): Promise
     p_pending_billing_interval: null,
   });
   if (error) throw error;
+
+  // Paystack's subscription.disable webhook (fired when the cancel/downgrade was scheduled) may
+  // already have marked this row "cancelled". Undoing the change within the paid period means the
+  // account is simply active again.
+  const admin = createAdminClient();
+  const { error: statusError } = await admin
+    .from("subscriptions")
+    .update({ status: "active" })
+    .eq("owner_id", ownerId)
+    .eq("status", "cancelled")
+    .gt("current_period_end", new Date().toISOString());
+  if (statusError) throw statusError;
 }
 
 /**
@@ -524,6 +536,19 @@ export async function markSubscriptionPastDue(adminSupabase: DB, ownerId: string
 
 /** A Paystack-side subscription disable — mirror it locally rather than waiting for the period-end lazy transition. */
 export async function markSubscriptionCancelledByProvider(adminSupabase: DB, ownerId: string): Promise<void> {
+  // Scheduling a downgrade to a cheaper PAID plan (and cancelling) disables the Paystack
+  // subscription on purpose, which makes Paystack fire this webhook. A scheduled paid downgrade
+  // is not a cancellation: the account stays active on its current plan until the period ends,
+  // so don't flip it to "cancelled" (the billing page would show a red Cancelled badge next to
+  // "Your plan will move to Creator").
+  const { data: sub, error: readError } = await adminSupabase
+    .from("subscriptions")
+    .select("pending_plan_id")
+    .eq("owner_id", ownerId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (sub?.pending_plan_id && sub.pending_plan_id !== "free") return;
+
   const { error } = await adminSupabase.from("subscriptions").update({ status: "cancelled", cancel_at_period_end: true }).eq("owner_id", ownerId);
   if (error) throw error;
 }
