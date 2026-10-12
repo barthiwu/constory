@@ -18,7 +18,8 @@ export async function updateSession(request: NextRequest) {
   ];
 
   if (publicAuthRoutes.some((route) => requestPathname === route)) {
-    return NextResponse.next();
+    // Pass `request` through so the headers set upstream (the CSP nonce) still reach the page render.
+    return NextResponse.next({ request });
   }
 
   let response = NextResponse.next({ request });

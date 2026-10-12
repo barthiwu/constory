@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import localFont from "next/font/local";
 import { ToastProvider } from "@/components/ui/toast";
 import { ThemeProvider } from "@/components/theme-provider";
@@ -24,11 +25,14 @@ export const metadata: Metadata = {
     "Constory is an intelligent workspace for planning content with purpose: turn brand information into strategy, ideas, and an organized content calendar.",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  // Per-request CSP nonce set by proxy.ts. Reading request headers makes every page render dynamically, which is
+  // inherent to nonce-based CSP (a static page has no request to carry a nonce).
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col bg-app-background text-text-primary">
-        <ThemeProvider>
+        <ThemeProvider nonce={nonce}>
           <ToastProvider>{children}</ToastProvider>
           <ThemeToggle />
           <SupportWidget />
