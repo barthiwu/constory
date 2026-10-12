@@ -14,6 +14,7 @@ import { addIdeaToCalendarAction } from "@/app/app/(shell)/ideas/actions";
 import { PLATFORM_OPTIONS, platformLabel } from "@/lib/constants";
 import { CalendarDays } from "lucide-react";
 import type { ContentCalendar, ContentIdea } from "@/types/database";
+import { toISODate } from "@/lib/calendar-grid";
 
 export function AddToCalendarDialog({
   idea,
@@ -31,7 +32,7 @@ export function AddToCalendarDialog({
   const router = useRouter();
   const { toast } = useToast();
   const [calendarId, setCalendarId] = useState(calendars[0]?.id ?? "");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(toISODate(new Date()));
   const [platforms, setPlatforms] = useState<string[]>(idea?.recommended_platforms?.length ? idea.recommended_platforms : ["instagram"]);
   const [saving, setSaving] = useState(false);
   // This dialog stays mounted between opens (IdeasView toggles `open` rather

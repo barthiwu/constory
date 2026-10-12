@@ -44,7 +44,7 @@ export async function upsertBrandProfile(
 
   const { data, error } = await supabase
     .from("brand_profiles")
-    .insert({ workspace_id: workspaceId, ...input })
+    .insert({ ...input, workspace_id: workspaceId })
     .select("*")
     .single();
   if (error) throw error;
@@ -74,7 +74,7 @@ export async function createProductService(
 ): Promise<ProductService> {
   const { data, error } = await supabase
     .from("products_services")
-    .insert({ workspace_id: workspaceId, ...input })
+    .insert({ ...input, workspace_id: workspaceId })
     .select("*")
     .single();
   if (error) throw error;

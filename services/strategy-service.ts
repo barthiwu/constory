@@ -109,7 +109,7 @@ export async function createPillar(
 ): Promise<ContentPillar> {
   const { data, error } = await supabase
     .from("content_pillars")
-    .insert({ workspace_id: workspaceId, strategy_id: strategyId, ...input, source: "USER" })
+    .insert({ ...input, workspace_id: workspaceId, strategy_id: strategyId, source: "USER" })
     .select("*")
     .single();
   if (error) throw error;

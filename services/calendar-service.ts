@@ -3,6 +3,52 @@ import type { Database, ContentCalendar, CalendarPost, PostStatus } from "@/type
 
 type DB = SupabaseClient<Database>;
 
+/**
+ * Server Actions are public POST endpoints: their TypeScript parameter types are not enforced at
+ * runtime, so a forged request can carry extra keys. The services below used to spread caller input
+ * straight into insert()/update(), which let a request override structural columns -- e.g.
+ * `{ calendar_id: "<other calendar>" }` after `{ calendar_id: calendarId, ...input }` silently wins,
+ * sidestepping the locked-workspace / plan-limit checks done against the *intended* parent. Only the
+ * known editable columns are ever passed through now, and the parent id is applied last.
+ */
+function pickFields<T extends object>(input: T, allowed: readonly string[]): Partial<T> {
+  const out: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in input) out[key] = (input as Record<string, unknown>)[key];
+  }
+  return out as Partial<T>;
+}
+
+const CALENDAR_FIELDS = [
+  "name",
+  "start_date",
+  "end_date",
+  "posting_frequency",
+  "selected_platforms",
+  "primary_goal",
+  "campaign_name",
+  "campaign_objective",
+  "campaign_start_date",
+  "campaign_end_date",
+  "campaign_message",
+] as const;
+
+const POST_FIELDS = [
+  "content_pillar_id",
+  "scheduled_date",
+  "platform",
+  "title",
+  "format",
+  "objective",
+  "brief",
+  "hook",
+  "caption",
+  "cta",
+  "hashtags",
+  "creative_direction",
+  "status",
+] as const;
+
 export async function getCalendars(supabase: DB, workspaceId: string): Promise<ContentCalendar[]> {
   const { data, error } = await supabase
     .from("content_calendars")
@@ -36,7 +82,7 @@ export interface CreateCalendarInput {
 export async function createCalendar(supabase: DB, workspaceId: string, input: CreateCalendarInput): Promise<ContentCalendar> {
   const { data, error } = await supabase
     .from("content_calendars")
-    .insert({ workspace_id: workspaceId, ...input })
+    .insert({ ...pickFields(input, CALENDAR_FIELDS), workspace_id: workspaceId } as Database["public"]["Tables"]["content_calendars"]["Insert"])
     .select("*")
     .single();
   if (error) throw error;
@@ -48,7 +94,7 @@ export async function updateCalendar(
   calendarId: string,
   input: Partial<CreateCalendarInput>,
 ): Promise<ContentCalendar> {
-  const { data, error } = await supabase.from("content_calendars").update(input).eq("id", calendarId).select("*").single();
+  const { data, error } = await supabase.from("content_calendars").update(pickFields(input, CALENDAR_FIELDS)).eq("id", calendarId).select("*").single();
   if (error) throw error;
   return data;
 }
@@ -141,7 +187,7 @@ export interface CreatePostInput {
 export async function createPost(supabase: DB, calendarId: string, input: CreatePostInput): Promise<CalendarPost> {
   const { data, error } = await supabase
     .from("calendar_posts")
-    .insert({ calendar_id: calendarId, ...input })
+    .insert({ ...pickFields(input, POST_FIELDS), calendar_id: calendarId } as Database["public"]["Tables"]["calendar_posts"]["Insert"])
     .select("*")
     .single();
   if (error) throw error;
@@ -156,14 +202,14 @@ export async function bulkCreatePosts(
   if (posts.length === 0) return [];
   const { data, error } = await supabase
     .from("calendar_posts")
-    .insert(posts.map((p) => ({ calendar_id: calendarId, ...p })))
+    .insert(posts.map((p) => ({ ...pickFields(p, POST_FIELDS), calendar_id: calendarId }) as Database["public"]["Tables"]["calendar_posts"]["Insert"]))
     .select("*");
   if (error) throw error;
   return data ?? [];
 }
 
 export async function updatePost(supabase: DB, postId: string, input: Partial<CreatePostInput>): Promise<CalendarPost> {
-  const { data, error } = await supabase.from("calendar_posts").update(input).eq("id", postId).select("*").single();
+  const { data, error } = await supabase.from("calendar_posts").update(pickFields(input, POST_FIELDS)).eq("id", postId).select("*").single();
   if (error) throw error;
   return data;
 }

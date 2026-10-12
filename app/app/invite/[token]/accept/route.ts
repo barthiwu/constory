@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { acceptInvite } from "@/services/workspace-service";
 import { WORKSPACE_COOKIE } from "@/lib/workspace";
@@ -22,6 +23,12 @@ import { WORKSPACE_COOKIE } from "@/lib/workspace";
  */
 export async function GET(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
+
+  // Same guard as the preview page: a malformed token makes the RPC throw (22P02) -> 500.
+  if (!z.string().uuid().safeParse(token).success) {
+    return NextResponse.redirect(new URL("/invite/invalid", request.url));
+  }
+
   const supabase = await createClient();
 
   const result = await acceptInvite(supabase, token);
@@ -37,7 +44,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   }
 
   // Anything that didn't succeed (not_found / expired / revoked / accepted /
-  // email_mismatch) is explained on the public preview page instead of
-  // duplicating that messaging here.
-  return NextResponse.redirect(new URL(`/invite/${token}`, request.url));
+  // email_mismatch / email_unconfirmed) is explained on the public preview page instead of
+  // duplicating that messaging here. The reason is passed along so that page can stop
+  // redirecting back here (which would loop forever for a matching-but-unconfirmed email).
+  return NextResponse.redirect(new URL(`/invite/${token}?error=${encodeURIComponent(result.reason)}`, request.url));
 }

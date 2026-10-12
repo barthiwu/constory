@@ -30,7 +30,7 @@ export async function createIdea(
 ): Promise<ContentIdea> {
   const { data, error } = await supabase
     .from("content_ideas")
-    .insert({ workspace_id: workspaceId, ...input, source })
+    .insert({ ...input, workspace_id: workspaceId, source })
     .select("*")
     .single();
   if (error) throw error;
@@ -45,7 +45,7 @@ export async function bulkCreateIdeas(
   if (ideas.length === 0) return [];
   const { data, error } = await supabase
     .from("content_ideas")
-    .insert(ideas.map((i) => ({ workspace_id: workspaceId, ...i, source: "AI" as const })))
+    .insert(ideas.map((i) => ({ ...i, workspace_id: workspaceId, source: "AI" as const })))
     .select("*");
   if (error) throw error;
   return (data ?? []) as ContentIdea[];

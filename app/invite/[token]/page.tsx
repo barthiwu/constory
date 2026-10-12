@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { getInvitePreview } from "@/services/workspace-service";
 import { logoutAction } from "@/app/(auth)/actions";
@@ -23,12 +24,23 @@ const ROLE_LABEL: Record<string, string> = { admin: "an admin", editor: "an edit
  * When the visitor is already logged in with the matching email, this page
  * redirects straight there instead of showing anything.
  */
-export default async function InvitePreviewPage({ params }: { params: Promise<{ token: string }> }) {
+export default async function InvitePreviewPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ error?: string }>;
+}) {
   const { token } = await params;
+  const { error: acceptError } = await searchParams;
   const supabase = await createClient();
 
+  // A non-UUID token would make the get_invite_preview RPC throw (Postgres 22P02) and surface as a 500
+  // instead of the friendly "not found" card.
+  const tokenIsValid = z.string().uuid().safeParse(token).success;
+
   const [preview, { data: { user } }] = await Promise.all([
-    getInvitePreview(supabase, token),
+    tokenIsValid ? getInvitePreview(supabase, token) : Promise.resolve(null),
     supabase.auth.getUser(),
   ]);
 
@@ -85,7 +97,26 @@ export default async function InvitePreviewPage({ params }: { params: Promise<{ 
 
   if (user) {
     if (user.email?.toLowerCase() === preview.invitedEmail.toLowerCase()) {
-      redirect(`/app/invite/${token}/accept`);
+      // If the accept step already ran and failed, show why instead of bouncing back to it -- otherwise
+      // a failure for a matching email (e.g. an unconfirmed address) is an endless redirect loop.
+      if (!acceptError) redirect(`/app/invite/${token}/accept`);
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle>{acceptError === "email_unconfirmed" ? "Confirm your email first" : "Couldn't accept this invite"}</CardTitle>
+            <CardDescription>
+              {acceptError === "email_unconfirmed"
+                ? `Your address ${user.email} hasn't been verified yet. Open the verification email we sent when you signed up, click the link, then come back to this invite.`
+                : "Something went wrong while accepting this invite. Please try the link again, or ask an admin to send a new one."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild variant="secondary" className="w-full">
+              <Link href={`/invite/${token}`}>Try again</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      );
     }
     return (
       <Card>

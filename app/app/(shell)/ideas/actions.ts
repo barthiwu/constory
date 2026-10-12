@@ -7,6 +7,7 @@ import type { IdeaStatus } from "@/types/database";
 import { canCreateIdea, isWorkspaceLocked } from "@/lib/billing/entitlements";
 import { getCalendar } from "@/services/calendar-service";
 
+const MAX_IDEAS_PER_SAVE = 50;
 const LOCKED_MESSAGE = "This brand is locked because your plan doesn't currently cover it. Manage your active brands from Settings → Billing.";
 
 export interface ActionResult {
@@ -20,6 +21,8 @@ export interface ActionResult {
  * does, satisfying the "generate, review, save" flow for every idea.
  */
 export async function saveGeneratedIdeasAction(workspaceId: string, ideas: IdeaInput[]): Promise<ActionResult & { count?: number }> {
+  // A generation run returns at most 20 ideas; refuse an absurd batch from a forged request (unlimited plans have no row cap to catch it).
+  if (!Array.isArray(ideas) || ideas.length === 0 || ideas.length > MAX_IDEAS_PER_SAVE) return { error: "Nothing valid to save." };
   const supabase = await createClient();
   const check = await canCreateIdea(supabase, workspaceId, ideas.length);
   if (!check.allowed) return { error: check.reason ?? "You've reached your plan's saved-ideas limit." };
@@ -90,7 +93,8 @@ export async function addIdeaToCalendarAction(
   scheduledDate: string,
   platforms: string[],
 ): Promise<ActionResult & { postIds?: string[] }> {
-  if (platforms.length === 0) return { error: "Select at least one platform." };
+  if (!Array.isArray(platforms) || platforms.length === 0) return { error: "Select at least one platform." };
+  if (platforms.length > 20) return { error: "Too many platforms selected." };
   const supabase = await createClient();
   try {
     const { data: idea, error } = await supabase.from("content_ideas").select("*").eq("id", ideaId).single();

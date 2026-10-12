@@ -19,6 +19,7 @@ import {
 } from "@/services/calendar-service";
 import { canCreateCalendar, isWorkspaceLocked } from "@/lib/billing/entitlements";
 
+const MAX_GENERATED_POSTS = 400;
 const LOCKED_MESSAGE = "This brand is locked because your plan doesn't currently cover it. Manage your active brands from Settings → Billing.";
 
 export interface ActionResult {
@@ -88,6 +89,8 @@ export async function saveGeneratedCalendarAction(calendarId: string, posts: Cre
   const calendar = await getCalendar(supabase, calendarId);
   if (!calendar) return { error: "That calendar couldn't be found." };
   if (await isWorkspaceLocked(supabase, calendar.workspace_id)) return { error: LOCKED_MESSAGE };
+  // An AI calendar is a few dozen posts; refuse an absurd batch from a forged request.
+  if (!Array.isArray(posts) || posts.length > MAX_GENERATED_POSTS) return { error: "That plan is too large to save." };
   try {
     const existing = await getPosts(supabase, calendarId);
     if (existing.length > 0) {

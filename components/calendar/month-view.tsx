@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
 import { PostHoverPreview } from "@/components/calendar/post-hover-preview";
-import { getMonthGridDates, WEEKDAY_LABELS } from "@/lib/calendar-grid";
+import { getMonthGridDates, toISODate, WEEKDAY_LABELS } from "@/lib/calendar-grid";
 import { cn } from "@/lib/utils";
 import type { CalendarPost, ContentPillar } from "@/types/database";
 
@@ -46,7 +46,7 @@ export function MonthView({
   }
 
   const monthLabel = new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayISO = toISODate(new Date());
 
   return (
     <div className="grid gap-3">

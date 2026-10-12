@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PlatformIcon } from "@/components/calendar/platform-icon";
 import { PostHoverPreview } from "@/components/calendar/post-hover-preview";
-import { getWeekDates } from "@/lib/calendar-grid";
+import { getWeekDates, toISODate } from "@/lib/calendar-grid";
 import { formatDateShort } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import type { CalendarPost, ContentPillar } from "@/types/database";
@@ -39,10 +39,10 @@ export function WeekView({
   function shiftWeek(delta: number) {
     const d = new Date(`${anchor}T00:00:00`);
     d.setDate(d.getDate() + delta * 7);
-    setAnchor(d.toISOString().slice(0, 10));
+    setAnchor(toISODate(d));
   }
 
-  const todayISO = new Date().toISOString().slice(0, 10);
+  const todayISO = toISODate(new Date());
 
   return (
     <div className="grid gap-3">

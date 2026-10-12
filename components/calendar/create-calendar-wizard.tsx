@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { calendarBasicsSchema, calendarPlatformsSchema } from "@/lib/validations/calendar";
 import { createCalendarAction } from "@/app/app/(shell)/calendars/actions";
 import { formatDate } from "@/lib/utils";
+import { toISODate } from "@/lib/calendar-grid";
 
 const STEP_LABELS = ["Basics", "Platforms", "Goal", "Campaign", "Review"];
 
@@ -35,7 +36,7 @@ function defaultDates() {
   const start = new Date();
   const end = new Date();
   end.setDate(end.getDate() + 30);
-  return { start: start.toISOString().slice(0, 10), end: end.toISOString().slice(0, 10) };
+  return { start: toISODate(start), end: toISODate(end) };
 }
 
 export function CreateCalendarWizard({

@@ -6,6 +6,7 @@ import {
   priceForInterval,
   formatCents,
   isUpgrade,
+  nextPeriodEnd,
   getPlanCreditAllowance,
   getPlanEntitlements,
 } from "@/lib/billing/plans";
@@ -107,5 +108,33 @@ describe("isUpgrade", () => {
     expect(isUpgrade("pro", "creator")).toBe(false);
     expect(isUpgrade("creator", "free")).toBe(false);
     expect(isUpgrade("free", "free")).toBe(false);
+  });
+});
+
+describe("nextPeriodEnd", () => {
+  const iso = (d: Date) => d.toISOString();
+
+  it("adds whole months for ordinary dates", () => {
+    expect(iso(nextPeriodEnd("monthly", new Date("2026-10-12T08:30:00Z")))).toBe("2026-11-12T08:30:00.000Z");
+    expect(iso(nextPeriodEnd("quarterly", new Date("2026-10-12T08:30:00Z")))).toBe("2027-01-12T08:30:00.000Z");
+    expect(iso(nextPeriodEnd("annual", new Date("2026-10-12T08:30:00Z")))).toBe("2027-10-12T08:30:00.000Z");
+  });
+
+  it("clamps to the last day of a shorter month instead of overflowing into the next one", () => {
+    // Previously Jan 31 + 1 month -> "Feb 31" -> Mar 3.
+    expect(iso(nextPeriodEnd("monthly", new Date("2026-01-31T00:00:00Z")))).toBe("2026-02-28T00:00:00.000Z");
+    expect(iso(nextPeriodEnd("monthly", new Date("2028-01-31T00:00:00Z")))).toBe("2028-02-29T00:00:00.000Z");
+    expect(iso(nextPeriodEnd("monthly", new Date("2026-03-31T00:00:00Z")))).toBe("2026-04-30T00:00:00.000Z");
+    expect(iso(nextPeriodEnd("quarterly", new Date("2026-11-30T00:00:00Z")))).toBe("2027-02-28T00:00:00.000Z");
+  });
+
+  it("handles leap-day annual renewals", () => {
+    expect(iso(nextPeriodEnd("annual", new Date("2028-02-29T00:00:00Z")))).toBe("2029-02-28T00:00:00.000Z");
+  });
+
+  it("does not mutate its input", () => {
+    const from = new Date("2026-01-31T00:00:00Z");
+    nextPeriodEnd("monthly", from);
+    expect(from.toISOString()).toBe("2026-01-31T00:00:00.000Z");
   });
 });

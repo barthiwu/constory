@@ -149,9 +149,22 @@ export function isUpgrade(from: PlanId, to: PlanId): boolean {
   return PLAN_ORDER.indexOf(to) > PLAN_ORDER.indexOf(from);
 }
 
+/**
+ * The end of the billing/credit period that starts at `from`, `interval` months later.
+ *
+ * Plain `setMonth(getMonth() + n)` overflows short months: Jan 31 + 1 month asks for "Feb 31", which
+ * JS normalises to Mar 3 -- so an account activated on the 29th-31st got a period several days too
+ * long (credits and access) and every later period drifted with it. This clamps to the last day of
+ * the target month instead (Jan 31 -> Feb 28/29), and works in UTC so the result doesn't depend on
+ * the server's timezone.
+ */
 export function nextPeriodEnd(interval: BillingInterval, from: Date = new Date()): Date {
   const months = BILLING_INTERVAL_MONTHS[interval];
   const d = new Date(from);
-  d.setMonth(d.getMonth() + months);
+  const dayOfMonth = d.getUTCDate();
+  d.setUTCDate(1); // avoid overflow while moving the month
+  d.setUTCMonth(d.getUTCMonth() + months);
+  const lastDayOfTargetMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(dayOfMonth, lastDayOfTargetMonth));
   return d;
 }
