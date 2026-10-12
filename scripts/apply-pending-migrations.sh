@@ -11,7 +11,7 @@
 # Needs `psql`:  brew install libpq && brew link --force libpq
 set -euo pipefail
 
-PROJECT_REF="${SUPABASE_PROJECT_REF:-$(cat supabase/.temp/project-ref 2>/dev/null || true)}"
+PROJECT_REF="${SUPABASE_PROJECT_REF:-$(tr -d '[:space:]' < supabase/.temp/project-ref 2>/dev/null || true)}"
 POOLER_HOST="${SUPABASE_POOLER_HOST:-aws-1-eu-west-1.pooler.supabase.com}"
 MIGRATIONS_DIR="supabase/migrations"
 
@@ -23,7 +23,10 @@ if [[ -z "${PSQL_CMD:-}" ]]; then
     read -r -s -p "Supabase database password: " PGPASSWORD; echo
     export PGPASSWORD
   fi
-  PSQL_CMD="psql host=$POOLER_HOST port=5432 dbname=postgres user=postgres.$PROJECT_REF sslmode=require"
+  # Connection settings go in PG* environment variables (not a conninfo string) so nothing gets split by the shell.
+  # The Supabase pooler identifies your project from the "postgres.<project-ref>" user name.
+  export PGHOST="$POOLER_HOST" PGPORT=5432 PGDATABASE=postgres PGUSER="postgres.$PROJECT_REF" PGSSLMODE=require
+  PSQL_CMD="psql"
 fi
 
 run() { $PSQL_CMD -X -q -v ON_ERROR_STOP=1 "$@"; }
