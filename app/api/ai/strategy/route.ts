@@ -8,7 +8,7 @@ import { AIGenerationError } from "@/lib/ai/client";
 import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "@/services/ai-generation-log";
 import { getWorkspace } from "@/services/workspace-service";
 import { canUseAI } from "@/lib/billing/entitlements";
-import { consumeAiCredits } from "@/services/billing-service";
+import { reserveAiCredits, settleAiCredits, refundAiCredits } from "@/lib/billing/ai-credits";
 
 const bodySchema = z.object({ workspaceId: z.string().uuid() });
 
@@ -44,6 +44,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
   }
 
+  // Hold the credits NOW, before any AI work (migration 0028). canUseAI above is only a cheap pre-check with
+  // friendly messages; this atomic reservation is what actually stops parallel requests from all passing the
+  // check and each running a paid generation, and it is also where a read-only member is refused.
+  const held = await reserveAiCredits(supabase, workspaceId, "generate_strategy", credits.cost, credits.planId);
+  if (!held.ok) {
+    return NextResponse.json({ error: held.error, upgradeTo: held.upgradeTo }, { status: held.status });
+  }
+  const reservation = held.reservation;
+
   let generationId: string | null = null;
   try {
     const context = await buildAIContext(supabase, workspaceId);
@@ -53,7 +62,7 @@ export async function POST(request: Request) {
 
     const { strategy } = await generateStrategy(context);
 
-    if (credits.planId) await consumeAiCredits(supabase, workspaceId, "generate_strategy", credits.cost, credits.planId);
+    await settleAiCredits(reservation);
 
     await logGenerationComplete(supabase, generationId, {
       pillarCount: strategy.pillars.length,
@@ -62,6 +71,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ draft: strategy });
   } catch (err) {
+    // Nothing was delivered, so give the held credits back (a no-op if they were already settled).
+    await refundAiCredits(reservation);
     if (generationId) {
       await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});
     }

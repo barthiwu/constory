@@ -208,7 +208,7 @@ export type AIActionType =
   | "generate_ideas"
   | "generate_strategy"
   | "generate_calendar";
-export type UsageRequestStatus = "success" | "failed";
+export type UsageRequestStatus = "reserved" | "success" | "failed" | "refunded";
 
 export type Subscription = {
   id: string;
@@ -582,6 +582,28 @@ export type Database = {
           reason: string;
           workspace_id: string | null;
         }[];
+      };
+      reserve_ai_credits: {
+        Args: {
+          p_workspace_id: string;
+          p_action_type: AIActionType;
+          p_credits: number;
+        };
+        Returns: {
+          ok: boolean;
+          reservation_id: string | null;
+          remaining: number;
+          monthly_allocation: number;
+          reason: string;
+        }[];
+      };
+      settle_ai_credits: {
+        Args: { p_reservation_id: string };
+        Returns: boolean;
+      };
+      refund_ai_credits: {
+        Args: { p_reservation_id: string };
+        Returns: boolean;
       };
       consume_ai_credits: {
         Args: {

@@ -9,7 +9,7 @@ import { logGenerationStart, logGenerationComplete, logGenerationFailed } from "
 import { getWorkspace } from "@/services/workspace-service";
 import { getStrategy, getPillars } from "@/services/strategy-service";
 import { canUseAI } from "@/lib/billing/entitlements";
-import { consumeAiCredits } from "@/services/billing-service";
+import { reserveAiCredits, settleAiCredits, refundAiCredits } from "@/lib/billing/ai-credits";
 
 const bodySchema = z.object({
   workspaceId: z.string().uuid(),
@@ -55,6 +55,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: credits.reason, upgradeTo: credits.upgradeTo }, { status: 402 });
   }
 
+  // Hold the credits NOW, before any AI work (migration 0028). canUseAI above is only a cheap pre-check with
+  // friendly messages; this atomic reservation is what actually stops parallel requests from all passing the
+  // check and each running a paid generation, and it is also where a read-only member is refused.
+  const held = await reserveAiCredits(supabase, workspaceId, "generate_ideas", credits.cost, credits.planId);
+  if (!held.ok) {
+    return NextResponse.json({ error: held.error, upgradeTo: held.upgradeTo }, { status: held.status });
+  }
+  const reservation = held.reservation;
+
   let generationId: string | null = null;
   try {
     const context = await buildAIContext(supabase, workspaceId);
@@ -62,9 +71,7 @@ export async function POST(request: Request) {
 
     const { ideas } = await generateIdeas(context, { count, focusPillarName, platform, objective, format });
 
-    // Only ever consume credits once the AI call has actually succeeded
-    // (spec §8) — a failed generation below never reaches this line.
-    if (credits.planId) await consumeAiCredits(supabase, workspaceId, "generate_ideas", credits.cost, credits.planId);
+        await settleAiCredits(reservation);
 
     const strategy = await getStrategy(supabase, workspaceId);
     const pillars = strategy ? await getPillars(supabase, strategy.id) : [];
@@ -85,6 +92,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ ideas: draft });
   } catch (err) {
+    // Nothing was delivered, so give the held credits back (a no-op if they were already settled).
+    await refundAiCredits(reservation);
     if (generationId) {
       await logGenerationFailed(supabase, generationId, err instanceof Error ? err.message : String(err)).catch(() => {});
     }

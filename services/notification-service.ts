@@ -146,7 +146,7 @@ export async function notifyUser(admin: DB, input: NotifyInput): Promise<void> {
 
 
 /**
- * Fires the "low AI credits" notification the first time a consumeAiCredits
+ * Fires the "low AI credits" notification the first time a settleAiCredits
  * call leaves the account at or below 20% of its monthly allocation (or, at
  * small allocations, its last credit). Idempotent via notification_log —
  * the event key includes the credit period's end date, so it fires at most

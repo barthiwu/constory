@@ -170,9 +170,9 @@ export async function canCreateCalendar(supabase: DB, workspaceId: string): Prom
 /**
  * Checks (without spending) whether this workspace's account has enough AI
  * credits for `action`. Callers must NOT call the AI provider when this
- * returns allowed: false (spec §33) — and must call
- * services/billing-service.ts's consumeAiCredits AFTER a successful
- * generation, never before.
+ * returns allowed: false (spec §33). This is only the friendly pre-check; the
+ * authoritative, race-free spend is lib/billing/ai-credits.ts's reserveAiCredits
+ * (an atomic hold taken before the call, settled on success, refunded on failure).
  */
 export async function canUseAI(
   supabase: DB,
@@ -184,7 +184,7 @@ export async function canUseAI(
   if (!ent) return { allowed: false, reason: "Workspace not found.", cost, remaining: 0, planId: null };
   if (ent.locked) return { ...lockedResult(), cost, remaining: 0, planId: ent.planId };
 
-  const balance = await checkAiCredits(supabase, workspaceId, ent.planId);
+  const balance = await checkAiCredits(supabase, workspaceId);
   if (!balance.ok) {
     return { allowed: false, reason: "We couldn't verify your AI credit balance. Please try again.", cost, remaining: balance.remaining, planId: ent.planId };
   }

@@ -9,9 +9,7 @@ import type {
   ConsumeAiCreditsResult,
 } from "@/types/database";
 import { getPlanCreditAllowance, getPlanEntitlements, nextPeriodEnd } from "@/lib/billing/plans";
-import type { AIActionType } from "@/lib/billing/credit-costs";
 import { createAdminClient } from "@/lib/supabase/server";
-import { notifyLowCreditsIfNeeded } from "@/services/notification-service";
 import { createSubscription as createPaystackSubscription } from "@/lib/billing/paystack-client";
 import { getPaystackPlanCode } from "@/lib/billing/paystack-plan-codes";
 
@@ -277,13 +275,10 @@ export async function getResolvedSubscription(supabase: DB, ownerId: string): Pr
  * provider when credits are insufficient). Also lazily rolls the credit
  * period over if it has elapsed, so the number shown is always current.
  *
- * `planId` is accepted for call-site convenience (callers already have it
- * resolved) but is no longer sent to the database — as of migration 0010,
- * consume_ai_credits() resolves the account's real plan allocation itself
- * from `subscriptions.plan_id`, closing the price-authority bypass found by
- * PHASE7_5_AUDIT_REPORT.md (a caller could previously claim any allocation).
+ * The database resolves the account's real plan allocation itself from
+ * `subscriptions.plan_id` (migration 0010), so a caller can't claim a bigger one.
  */
-export async function checkAiCredits(supabase: DB, workspaceId: string, _planId: PlanId): Promise<ConsumeAiCreditsResult> {
+export async function checkAiCredits(supabase: DB, workspaceId: string): Promise<ConsumeAiCreditsResult> {
   const { data, error } = await supabase.rpc("consume_ai_credits", {
     p_workspace_id: workspaceId,
     p_action_type: null,
@@ -294,49 +289,13 @@ export async function checkAiCredits(supabase: DB, workspaceId: string, _planId:
   return row ?? { ok: false, remaining: 0, monthly_allocation: 0, reason: "unknown_error" };
 }
 
-/**
- * Atomically spends `credits` credits and records the usage ledger row. Only
- * ever call this AFTER a successful AI generation (spec §8) — never before,
- * and never on a failed generation. Concurrency-safe: see the SQL function's
- * comment in migration 0008 for how the row lock prevents overspend.
- *
- * `planId` is accepted for call-site convenience but no longer sent to the
- * database — see the note on checkAiCredits above.
- */
-export async function consumeAiCredits(
-  supabase: DB,
-  workspaceId: string,
-  action: AIActionType,
-  credits: number,
-  _planId: PlanId,
-): Promise<ConsumeAiCreditsResult> {
-  const { data, error } = await supabase.rpc("consume_ai_credits", {
-    p_workspace_id: workspaceId,
-    p_action_type: action,
-    p_credits: credits,
-  });
-  if (error) throw error;
-  const row = data?.[0] ?? { ok: false, remaining: 0, monthly_allocation: 0, reason: "unknown_error" };
-
-  // Fire-and-checked (awaited, but internally best-effort — see that
-  // function's comment) low-credit notification. Only on a successful spend,
-  // and only ever resolves to an actual send/insert once per credit period.
-  if (row.ok) {
-    const ownerId = await getWorkspaceOwnerId(supabase, workspaceId);
-    if (ownerId) {
-      const admin = createAdminClient();
-      await notifyLowCreditsIfNeeded(admin, ownerId, row.remaining, row.monthly_allocation);
-    }
-  }
-
-  return row;
-}
-
 export async function listRecentUsage(supabase: DB, ownerId: string, limit = 20): Promise<AiUsageLedgerRow[]> {
   const { data, error } = await supabase
     .from("ai_usage_ledger")
     .select("*")
     .eq("owner_id", ownerId)
+    // Refunded/failed attempts weren't charged, so they don't belong in the usage history.
+    .in("request_status", ["reserved", "success"])
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) throw error;
